@@ -44,6 +44,15 @@ elif limactl list | grep -q "^$LIMA_INSTANCE"; then
 else
     echo "🚀 Creating new Lima instance '$LIMA_INSTANCE'..."
     
+    # Ask user for optional environment variables
+    echo "👉 Optionally enter environment variables as KEY=VALUE (blank line to finish):"
+    ENV_LINES=()
+    while true; do
+        read -r LINE
+        [ -z "$LINE" ] && break
+        ENV_LINES+=("  $LINE")
+    done
+
     # Create a minimal Lima template for Apple Silicon
     cat > /tmp/aicode.yaml <<EOF
 # Minimal aicode configuration for Apple Silicon
@@ -68,6 +77,12 @@ provision:
     script: |
       mkdir -p "$PROJECT_DIR"
 EOF
+
+    # Add env section if user provided variables
+    if [ ${#ENV_LINES[@]} -gt 0 ]; then
+        echo "env:" >> /tmp/aicode.yaml
+        printf '%s\n' "${ENV_LINES[@]}" >> /tmp/aicode.yaml
+    fi
 
     # Start with the minimal template
     limactl start --name="$LIMA_INSTANCE" /tmp/aicode.yaml
