@@ -1,0 +1,98 @@
+{
+  "document_type": "systematic_review_screening_cheatsheet",
+  "purpose": "Level 1 screening for research waste in health and biomedical sciences",
+  "fields": [
+    {
+      "name": "waste_type_discussed",
+      "description": "Type of waste discussed in the article",
+      "field_type": "text",
+      "required": true,
+      "question_number": null,
+      "question_type": "screening",
+      "allowed_values": null,
+      "guidance_notes": "Read the title and abstract carefully. Identify and describe the type of waste being discussed. Look for key terms and context clues that indicate the nature of the waste.",
+      "conditional_logic": null
+    },
+    {
+      "name": "waste_origin",
+      "description": "Where the waste typically comes from",
+      "field_type": "text",
+      "required": true,
+      "question_number": null,
+      "question_type": "screening",
+      "allowed_values": null,
+      "guidance_notes": "Based on your general knowledge and the article context, identify where this kind of waste primarily originates in the real world: Research settings (clinical trials, laboratories, systematic reviews, grant processes, publications), Healthcare delivery (hospitals, clinics, surgical suites), Industrial/commercial settings (factories, food production), Agricultural settings (farms, crop production), Biological/physiological processes",
+      "conditional_logic": "This field should be filled based on the waste type identified in the previous question"
+    },
+    {
+      "name": "research_process_waste",
+      "description": "Whether the article discusses waste in the research process itself",
+      "field_type": "text",
+      "required": true,
+      "question_number": null,
+      "question_type": "screening",
+      "allowed_values": null,
+      "guidance_notes": "Reflect on whether the article addresses inefficiencies or problems in how research is conducted, reported, or used. Aspects of Research Waste (MINUS framework, Rosengaard et al, 2024; expanded): Methodological (study design, study conduct, outcomes, analysis), Invisible (unpublication, discontinuation, data inaccessibility, paywall), Negligible (repetition, redundant), Underreported (poor reporting, selective reporting), Structural (management, collaboration, choice of subject, peer review, implementation), Emerging (any other practices starting to be recognized as wasteful), Summative (specific study called out as wasteful upon assessment). Ask yourself: Is this about improving research quality and efficiency or about managing physical materials and operations?",
+      "conditional_logic": "This field should be filled based on the previous answers and the MINUS framework"
+    },
+    {
+      "name": "waste_category",
+      "description": "The waste category that best describes the article",
+      "field_type": "categorical",
+      "required": true,
+      "question_number": null,
+      "question_type": "screening",
+      "allowed_values": [
+        "Asserted_research_waste",
+        "Quoted_research_waste",
+        "Food_waste",
+        "Hazardous_waste",
+        "Plastic_waste",
+        "Garbage_management",
+        "Industrial_waste",
+        "Wastewater",
+        "Medical_or_surgical_waste",
+        "Healthcare_personnel_time",
+        "Excess_requisition",
+        "Excess_use_of_animals",
+        "Pharmaceutical_waste",
+        "Muscle_wasting",
+        "Metabolic_waste",
+        "Crop_residue",
+        "Not_sure_see_previous_step"
+      ],
+      "guidance_notes": "Select category when... - Asserted_research_waste - Authors explicitly say it's about research waste (terms like 'research waste,' 'avoidable waste in research,' 'reducing waste in research'). - Quoted_research_waste - Article covers research waste concepts (redundant trials, poor methods, publication bias, selective reporting) but does not use the phrase 'research waste.' - Food_waste - Article is about food waste in any setting. - Hazardous_waste - Article is about dangerous materials (chemicals, toxins, radioactive substances) needing special disposal. - Plastic_waste - Article is about plastic waste or pollution. - Garbage_management - Article is about waste collection, disposal, or management systems. - Industrial_waste - Article is about waste from manufacturing or industrial processes. - Wastewater - Article is about contaminated water or water treatment. - Medical_or_surgical_waste - Article is about physical clinical waste (sharps, contaminated materials, surgical waste), not research waste. - Healthcare_personnel_time - Article is about inefficient clinician time use in healthcare delivery. - Excess_requisition - Article is about over-ordering or unnecessary supply procurement in clinical/operational settings. - Excess_use_of_animals - Article is about unnecessary animal use in research or animal welfare issues. - Pharmaceutical_waste - Article is about unused, expired, or improperly disposed medications. - Muscle_wasting - Article is about medical muscle loss (cachexia, sarcopenia, atrophy). - Metabolic_waste - Article is about biological byproducts of metabolism (urea, $$\text{CO}_2$$, etc.). - Crop_residue - Article is about agricultural waste from plants. - Not_sure_see_previous_step - Category unclear; rely on reflection from Question 3.",
+      "conditional_logic": "If 'Asserted_research_waste' or 'Quoted_research_waste' or 'Not_sure_see_previous_step' is selected, the study will be INCLUDED for Level 2 screening. If any other waste category is selected, the study will be EXCLUDED."
+    }
+  ],
+  "review_objective": "Conduct a scoping review to identify articles discussing research waste in health and biomedical sciences, distinguishing them from other types of waste (e.g., medical waste, food waste, industrial waste).",
+  "review_questions": [
+    "What constitutes research waste in health and biomedical sciences, and how can it be distinguished from other forms of waste in the literature?"
+  ],
+  "project_details": {
+    "items": [
+      {
+        "key": "GitHub link",
+        "value": "https://github.com/pvzhelnov/rw_alert_service"
+      },
+      {
+        "key": "Project name",
+        "value": "RW Alert Service - L1"
+      }
+    ]
+  },
+  "global_instructions": [
+    "If you select Asserted_research_waste or Quoted_research_waste, the study will be INCLUDED for Level 2 screening.",
+    "If you select any other waste category, the study will be EXCLUDED.",
+    "If you select Not_sure_see_previous_step, the study will be INCLUDED for Level 2 screening.",
+    "The screening system includes a simulated peer 'pree' review process that helps validate categorization decisions, but this does not require manual input from screeners."
+  ],
+  "definitions": {
+    "items": [
+      {
+        "key": "MINUS framework",
+        "value": "Aspects of Research Waste (Rosengaard et al, 2024; expanded): Methodological (study design, study conduct, outcomes, analysis), Invisible (unpublication, discontinuation, data inaccessibility, paywall), Negligible (repetition, redundant), Underreported (poor reporting, selective reporting), Structural (management, collaboration, choice of subject, peer review, implementation), Emerging (any other practices starting to be recognized as wasteful), Summative (specific study called out as wasteful upon assessment)"
+      }
+    ]
+  }
+}
