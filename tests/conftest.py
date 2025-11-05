@@ -52,6 +52,8 @@ def pytest_collection_modifyitems(config, items):
     if not config.getoption("--runapi"):
         skip_api = pytest.mark.skip(reason="need --runapi option to run")
         for item in items:
+            if "force_runapi" in item.keywords:
+                continue  # allow override using @force_runapi
             if "api" in item.keywords:
                 item.add_marker(skip_api)
 

@@ -276,6 +276,10 @@ def skip_if_asyncio(func):
     return skip_if_async_backend("asyncio")(func)
 
 
+def force_runapi(func):
+    return pytest.mark.force_runapi(func)
+
+
 def run_example(example: str, model: str):
     example_file = os.path.join("examples", example)
     return eval(example_file, model=model, limit=1)
