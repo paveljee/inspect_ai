@@ -77,6 +77,9 @@ norecursedirs = [
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 log_level = "WARNING"
+markers = [
+    "force_runapi: mark test to force API execution (custom marker)"
+]
 
 [tool.mypy]
 exclude = [
