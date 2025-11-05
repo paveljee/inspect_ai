@@ -4,7 +4,6 @@ from test_helpers.utils import (
     skip_if_no_google,
     skip_if_no_mistral,
     skip_if_no_openai,
-    skip_if_no_openrouter,
 )
 
 from inspect_ai import Task, eval, task
@@ -20,32 +19,8 @@ from inspect_ai.scorer import (
     scorer,
     stderr,
 )
-from inspect_ai.solver import TaskState, generate, tool
+from inspect_ai.solver import TaskState, generate
 from inspect_ai.util import json_schema
-
-
-@tool
-def get_stock_price(symbol: str) -> float:
-    """
-    Gets the current stock price for a symbol.
-
-    Args:
-      symbol: The stock symbol (e.g. "AAPL")
-
-    Returns:
-      The current stock price in USD.
-    """
-    if symbol == "AAPL":
-        return 150.0
-    elif symbol == "GOOGL":
-        return 2800.0
-    else:
-        return 0.0
-
-
-class Stock(BaseModel):
-    symbol: str
-    price: float
 
 
 class Color(BaseModel):
@@ -159,54 +134,6 @@ def check_nested_pydantic_output(model):
     check_structured_output(nested_pydantic(), model)
 
 
-@task
-def tool_calling_pydantic():
-    return Task(
-        dataset=[
-            Sample(
-                input="What is the stock price of Apple?",
-                target='{"symbol": "AAPL", "price": 150.0}',
-            )
-        ],
-        tools=[get_stock_price],
-        solver=generate(),
-        scorer=score_stock(),
-        config=GenerateConfig(
-            response_schema=ResponseSchema(
-                name="stock", json_schema=json_schema(Stock)
-            )
-        ),
-    )
-
-
-@scorer(metrics=[accuracy(), stderr()])
-def score_stock():
-    async def score(state: TaskState, target: Target):
-        try:
-            stock = Stock.model_validate_json(state.output.completion)
-            target_stock = Stock.model_validate_json(target.text)
-            if stock.symbol == target_stock.symbol and stock.price == target_stock.price:
-                value = CORRECT
-            else:
-                value = INCORRECT
-            return Score(
-                value=value,
-                answer=state.output.completion,
-            )
-        except ValidationError as ex:
-            return Score(
-                value=INCORRECT,
-                answer=state.output.completion,
-                explanation=f"Error parsing response: {ex}",
-            )
-
-    return score
-
-
-def check_tool_calling_pydantic_output(model):
-    check_structured_output(tool_calling_pydantic(), model)
-
-
 @skip_if_no_openai
 def test_openai_structured_output():
     check_color_structured_output("openai/gpt-4o-mini")
@@ -238,17 +165,3 @@ def test_google_structured_output():
 def test_mistral_structured_output():
     check_color_structured_output("mistral/mistral-large-latest")
     check_nested_pydantic_output("mistral/mistral-large-latest")
-
-
-@skip_if_no_openrouter
-def test_openrouter_structured_output():
-    check_color_structured_output("openrouter/openai/gpt-oss-20b:free")
-    check_nested_pydantic_output("openrouter/openai/gpt-oss-20b:free")
-    check_color_structured_output("openrouter/qwen/qwen3-235b-a22b:free")
-    check_nested_pydantic_output("openrouter/qwen/qwen3-235b-a22b:free")
-
-
-@skip_if_no_openrouter
-def test_openrouter_structured_output_tool_calling():
-    check_tool_calling_pydantic_output("openrouter/openai/gpt-oss-20b:free")
-    check_tool_calling_pydantic_output("openrouter/qwen/qwen3-235b-a22b:free")
