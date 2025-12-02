@@ -75,19 +75,19 @@ class Article(BaseModel):
     pmid: str
     title: str
     abstract: str
-    authors: List[Dict[str, str]] = Field(default_factory=list)
+    authors: List[Dict[str, str | None]] = Field(default_factory=list)
     journal: str
     publication_date: Optional[datetime] = None
     doi: str = ""
 
 
-def fetch_pubmed_articles(pmids: List[str]) -> List[Article]:
+def fetch_pubmed_articles(pmids: List[str | int]) -> List[Article]:
     """Fetch articles from PubMed API."""
     email = os.getenv("PUBMED_EMAIL", "inspect_task@example.com")
     tool = os.getenv("PUBMED_TOOL_NAME", "inspect-screening-task")
 
     pubmed = PubMed(tool=tool, email=email)
-    query = " OR ".join(pmids)
+    query = " OR ".join([f"{pmid}[pmid]" for pmid in pmids])
     results = pubmed.query(query, max_results=len(pmids))
 
     articles = []
@@ -325,7 +325,10 @@ Provide your screening decision following the schema structure.
             extraction_schema=extraction_schema,
         ),
         config=GenerateConfig(
-            response_schema=json_schema(extraction_schema),
+            response_schema=ResponseSchema(
+                name=extraction_schema.__name__,
+                json_schema=json_schema(extraction_schema),
+            ),
             temperature=0.0,
         ),
     )
