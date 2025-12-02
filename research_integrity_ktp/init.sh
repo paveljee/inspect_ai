@@ -68,8 +68,8 @@ mounts:
 mountType: "reverse-sshfs"
 
 cpus: 4
-memory: "4GiB"
-disk: "10GiB"
+memory: "6GiB"
+disk: "20GiB"
 
 # Ensure mount point exists
 provision:
