@@ -4,7 +4,7 @@ models:
   - model: /Volumes/home/anonymous/models/Meta-Llama-3.1-8B-Instruct-Q8_0.gguf
     model_alias: llama-3.1-8b
     n_gpu_layers: -1
-    n_ctx: 2048
+    n_ctx: 8192
     n_batch: 1
     n_threads: 1
     seed: 42
