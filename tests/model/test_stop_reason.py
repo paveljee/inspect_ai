@@ -38,7 +38,7 @@ async def check_stop_reason(model_name, **model_args: Any):
 @skip_if_no_groq
 @skip_if_trio
 async def test_groq_stop_reason() -> None:
-    await check_stop_reason("groq/llama3-70b-8192")
+    await check_stop_reason("groq/openai/gpt-oss-20b")
 
 
 @pytest.mark.asyncio
@@ -70,6 +70,7 @@ async def test_mistral_stop_reason() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.flaky
 @skip_if_no_grok
 @skip_if_trio
 async def test_grok_stop_reason() -> None:

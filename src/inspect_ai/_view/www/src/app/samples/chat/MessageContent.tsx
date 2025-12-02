@@ -1,6 +1,6 @@
 import clsx from "clsx";
 
-import { FC, ReactNode } from "react";
+import { FC, Fragment, ReactNode } from "react";
 import {
   ContentAudio,
   ContentData,
@@ -154,16 +154,15 @@ const messageRenderers: Record<string, MessageRenderer> = {
         return <JsonMessageContent id={`${key}-json`} json={obj} />;
       } else {
         return (
-          <>
+          <Fragment key={key}>
             <RenderedText
-              key={key}
               markdown={purgeInternalContainers(c.text) || ""}
               className={isLast ? "no-last-para-padding" : ""}
             />
             {c.citations ? (
               <MessageCitations citations={c.citations as Citation[]} />
             ) : undefined}
-          </>
+          </Fragment>
         );
       }
     },
@@ -172,12 +171,21 @@ const messageRenderers: Record<string, MessageRenderer> = {
     render: (key, content, isLast, _context) => {
       const r = content as ContentReasoning;
 
+      let title = "Reasoning";
       let text = r.reasoning;
       if (r.redacted) {
         text = r.summary || "Reasoning encrypted by model provider.";
+        if (r.summary) {
+          title = "Reasoning (Summary)";
+        }
       } else if (!text) {
         text = r.summary || "Reasoning text not provided.";
+        if (r.summary) {
+          title = "Reasoning (Summary)";
+        }
       }
+
+      // title states
 
       return (
         <div key={key} className={clsx(styles.reasoning, "text-size-small")}>
@@ -188,7 +196,7 @@ const messageRenderers: Record<string, MessageRenderer> = {
               isLast ? "no-last-para-padding" : "",
             )}
           >
-            Reasoning
+            {title}
           </div>
           <ExpandablePanel id={`${key}-reasoning`} collapse={true}>
             <RenderedText markdown={text} />{" "}

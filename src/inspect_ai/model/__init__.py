@@ -20,6 +20,7 @@ from inspect_ai._util.content import (
 )
 from inspect_ai._util.deprecation import relocated_module_attribute
 
+from ._anthropic_convert import messages_from_anthropic, model_output_from_anthropic
 from ._cache import (
     CachePolicy,
     cache_clear,
@@ -44,6 +45,7 @@ from ._generate_config import (
     GenerateConfigArgs,
     ResponseSchema,
 )
+from ._google_convert import messages_from_google, model_output_from_google
 from ._model import (
     GenerateFilter,
     GenerateInput,
@@ -63,7 +65,13 @@ from ._model_output import (
     StopReason,
     TopLogprob,
 )
-from ._openai_convert import messages_from_openai, messages_to_openai
+from ._openai_convert import (
+    messages_from_openai,
+    messages_from_openai_responses,
+    messages_to_openai,
+    model_output_from_openai,
+    model_output_from_openai_responses,
+)
 from ._prompt import user_prompt
 from ._providers.providers import *
 from ._registry import modelapi
@@ -95,6 +103,13 @@ __all__ = [
     "ChatMessageTool",
     "ChatCompletionChoice",
     "messages_from_openai",
+    "messages_from_openai_responses",
+    "messages_from_anthropic",
+    "messages_from_google",
+    "model_output_from_openai",
+    "model_output_from_openai_responses",
+    "model_output_from_anthropic",
+    "model_output_from_google",
     "messages_to_openai",
     "ModelCall",
     "ModelOutput",

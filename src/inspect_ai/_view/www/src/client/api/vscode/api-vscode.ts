@@ -7,11 +7,15 @@ import {
   LogContents,
   LogViewAPI,
   PendingSampleResponse,
+  PendingSamples,
+  SampleData,
   SampleDataResponse,
 } from "../types";
 import {
   kMethodEvalLog,
   kMethodEvalLogBytes,
+  kMethodEvalLogDir,
+  kMethodEvalLogFiles,
   kMethodEvalLogHeaders,
   kMethodEvalLogs,
   kMethodEvalLogSize,
@@ -30,7 +34,7 @@ async function client_events() {
   return [];
 }
 
-async function eval_logs() {
+async function get_log_root() {
   const response = await vscodeClient(kMethodEvalLogs, []);
   if (response) {
     const parsed = JSON5.parse(response);
@@ -48,11 +52,37 @@ async function eval_logs() {
   }
 }
 
-async function eval_set(): Promise<undefined> {
+const get_log_dir = async () => {
+  const response = await vscodeClient(kMethodEvalLogDir, []);
+  if (response) {
+    const parsed = JSON5.parse(response);
+    return parsed.log_dir as string | undefined;
+  }
+  return undefined;
+};
+
+const get_logs = async (mtime: number, clientFileCount: number) => {
+  const response = await vscodeClient(kMethodEvalLogFiles, [
+    mtime,
+    clientFileCount,
+  ]);
+  if (response) {
+    const parsed = JSON5.parse(response);
+    return parsed;
+  } else {
+    return [];
+  }
+};
+
+async function get_eval_set(): Promise<undefined> {
   return undefined;
 }
 
-async function eval_log(
+async function get_flow(): Promise<undefined> {
+  return undefined;
+}
+
+async function get_log_contents(
   log_file: string,
   headerOnly?: number,
   capabilities?: Capabilities,
@@ -74,15 +104,15 @@ async function eval_log(
   }
 }
 
-async function eval_log_size(log_file: string) {
+async function get_log_size(log_file: string) {
   return await vscodeClient(kMethodEvalLogSize, [log_file]);
 }
 
-async function eval_log_bytes(log_file: string, start: number, end: number) {
+async function get_log_bytes(log_file: string, start: number, end: number) {
   return await vscodeClient(kMethodEvalLogBytes, [log_file, start, end]);
 }
 
-async function eval_log_overviews(files: string[]) {
+async function get_log_summaries(files: string[]) {
   const response = await vscodeClient(kMethodEvalLogHeaders, [files]);
   if (response) {
     return JSON5.parse(response);
@@ -108,7 +138,7 @@ async function eval_pending_samples(
       };
     }
 
-    const json = await asyncJsonParse(response);
+    const json = await asyncJsonParse<PendingSamples>(response);
     return {
       status: "OK",
       pendingSamples: json,
@@ -142,7 +172,7 @@ async function eval_log_sample_data(
         status: "NotFound",
       };
     }
-    const json = await asyncJsonParse(response);
+    const json = await asyncJsonParse<SampleData>(response);
     return {
       status: "OK",
       sampleData: json,
@@ -171,12 +201,15 @@ async function open_log_file(log_file: string, log_dir: string) {
 
 const api: LogViewAPI = {
   client_events,
-  eval_logs,
-  eval_set,
-  eval_log,
-  eval_log_size,
-  eval_log_bytes,
-  eval_log_overviews,
+  get_log_root,
+  get_log_dir,
+  get_logs,
+  get_eval_set,
+  get_flow,
+  get_log_contents,
+  get_log_size,
+  get_log_bytes,
+  get_log_summaries,
   log_message,
   download_file,
   open_log_file,

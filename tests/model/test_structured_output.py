@@ -1,7 +1,9 @@
 import pytest
 from pydantic import BaseModel, ValidationError
 from test_helpers.utils import (
+    skip_if_no_anthropic,
     skip_if_no_google,
+    skip_if_no_grok,
     skip_if_no_mistral,
     skip_if_no_openai,
 )
@@ -140,6 +142,12 @@ def test_openai_structured_output():
     check_nested_pydantic_output("openai/gpt-4o-mini")
 
 
+@skip_if_no_anthropic
+def test_anthropic_structured_output():
+    check_color_structured_output("anthropic/claude-sonnet-4-5")
+    check_nested_pydantic_output("anthropic/claude-sonnet-4-5")
+
+
 @skip_if_no_openai
 def test_openai_responses_structured_output_color():
     model = get_model("openai/gpt-4o-mini", responses_api=True)
@@ -165,3 +173,9 @@ def test_google_structured_output():
 def test_mistral_structured_output():
     check_color_structured_output("mistral/mistral-large-latest")
     check_nested_pydantic_output("mistral/mistral-large-latest")
+
+
+@skip_if_no_grok
+def test_grok_structured_output():
+    check_color_structured_output("grok/grok-4-fast-reasoning")
+    check_nested_pydantic_output("grok/grok-4-fast-reasoning")

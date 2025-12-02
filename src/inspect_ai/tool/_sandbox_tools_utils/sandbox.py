@@ -39,6 +39,24 @@ logger = getLogger(__name__)
 
 TRACE_SANDBOX_TOOLS = "Sandbox Tools"
 
+
+class SandboxInjectionError(Exception):
+    """Exception raised when sandbox tools injection fails.
+
+    This error wraps any exception that occurs during the injection process
+    to provide a clear signal that the failure was specifically during injection.
+    This is required because SandboxInjection happens as a side effect of making
+    a tool call. We need to make sure that injection errors are not interpreted
+    and handled specially (e.g. give to the model) as exceptions throw from tool
+    calls are.
+    """
+
+    def __init__(self, message: str, cause: Exception | None = None) -> None:
+        super().__init__(message)
+        self.cause = cause
+        self.__cause__ = cause
+
+
 InstallState = Literal["pypi", "clean", "edited"]
 """Represents the state of the inspect-ai installation.
 
@@ -48,10 +66,13 @@ InstallState = Literal["pypi", "clean", "edited"]
 """
 
 
-# TODO: Currently, this logic relies on a specific file existing at a specific path
-# this may need to be enhanced to use a dynamic predicate instead. otherwise, how
-# would we work on os's with a different directory structure?
-SANDBOX_TOOLS_CLI = f"/opt/{SANDBOX_TOOLS_BASE_NAME}"
+# For this, we choose /var/tmp as the injection location since
+#  1) it is accessible in all major linux distributions
+#  2) all users have permissions to read/write to it (i.e. world-writable)
+#  3) it is unlikely to be cleared during an evaluation (https://en.wikipedia.org/wiki/Filesystem_Hierarchy_Standard)
+#  4) it is unlikely to be accidentally stumbled upon by an LLM solving a taks that requires interacting with temp files
+# We additionally choose a dot-prefixed random hash sub-directory to further attempt to prevent LLMs from stumbling on the injected tools.
+SANDBOX_TOOLS_CLI = f"/var/tmp/.da7be258e003d428/{SANDBOX_TOOLS_BASE_NAME}"
 
 
 async def sandbox_with_injected_tools(
@@ -75,13 +96,22 @@ async def sandbox_with_injected_tools(
 
 
 async def _inject_container_tools_code(sandbox: SandboxEnvironment) -> None:
-    info = await detect_sandbox_os(sandbox)
+    try:
+        info = await detect_sandbox_os(sandbox)
 
-    async with _open_executable_for_arch(info["architecture"]) as (_, f):
-        # TODO: The first tuple member, filename, isn't currently used, but it will be
-        await sandbox.write_file(SANDBOX_TOOLS_CLI, f.read())
-        # .write_file used `tee` which dropped execute permissions
-        await sandbox.exec(["chmod", "+x", SANDBOX_TOOLS_CLI])
+        async with _open_executable_for_arch(info["architecture"]) as (_, f):
+            # TODO: The first tuple member, filename, isn't currently used, but it will be
+            await sandbox.write_file(SANDBOX_TOOLS_CLI, f.read())
+            # .write_file used `tee` which dropped execute permissions
+            result = await sandbox.exec(["chmod", "+x", SANDBOX_TOOLS_CLI], user="root")
+            if not result.success:
+                raise RuntimeError(
+                    f"Failed to chmod sandbox tools binary: {result.stderr}"
+                )
+    except Exception as e:
+        raise SandboxInjectionError(
+            f"Failed to inject sandbox tools into sandbox: {e}", cause=e
+        ) from e
 
 
 @asynccontextmanager

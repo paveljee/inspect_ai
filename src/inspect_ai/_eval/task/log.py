@@ -1,3 +1,4 @@
+import os
 from importlib import metadata as importlib_metadata
 from typing import Any, Literal, cast
 
@@ -88,7 +89,9 @@ class TaskLogger:
         # determine versions
         git = git_context()
         revision = (
-            EvalRevision(type="git", origin=git.origin, commit=git.commit)
+            EvalRevision(
+                type="git", origin=git.origin, commit=git.commit, dirty=git.dirty
+            )
             if git
             else None
         )
@@ -142,7 +145,7 @@ class TaskLogger:
             solver=solver.solver if solver else None,
             tags=tags,
             solver_args=solver.args if solver else None,
-            model=f"{ModelName(model).api}/{model.api.canonical_name()}",
+            model=f"{ModelName(model).api}/{model.name}",
             model_generate_config=model.config,
             model_base_url=model.api.base_url,
             model_roles=model_roles_to_model_roles_config(model_roles),
@@ -181,12 +184,17 @@ class TaskLogger:
 
     async def init(self) -> None:
         self._location = await self.recorder.log_init(self.eval)
-        if self.eval.config.log_realtime is not False:
-            self._buffer_db = SampleBufferDatabase(
-                location=self._location,
-                log_images=self.eval.config.log_images is not False,
-                log_shared=self.eval.config.log_shared,
-            )
+
+        if self.eval.config.log_realtime is False or os.environ.get(
+            "PYTEST_CURRENT_TEST"
+        ):
+            return
+
+        self._buffer_db = SampleBufferDatabase(
+            location=self._location,
+            log_images=self.eval.config.log_images is not False,
+            log_shared=self.eval.config.log_shared,
+        )
 
     @property
     def location(self) -> str:
@@ -265,11 +273,7 @@ class TaskLogger:
         return log
 
 
-async def log_start(
-    logger: TaskLogger,
-    plan: Plan,
-    config: GenerateConfig,
-) -> None:
+def plan_to_eval_plan(plan: Plan, config: GenerateConfig) -> EvalPlan:
     def eval_plan_step(solver: Solver) -> EvalPlanStep:
         return EvalPlanStep(
             solver=registry_log_name(solver), params=registry_params(solver)
@@ -283,7 +287,15 @@ async def log_start(
     )
     if plan.finish:
         eval_plan.steps.append(eval_plan_step(plan.finish))
+    return eval_plan
 
+
+async def log_start(
+    logger: TaskLogger,
+    plan: Plan,
+    config: GenerateConfig,
+) -> None:
+    eval_plan = plan_to_eval_plan(plan, config)
     await logger.log_start(eval_plan)
 
 

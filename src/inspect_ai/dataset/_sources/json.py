@@ -2,10 +2,11 @@ import json
 import os
 from io import TextIOWrapper
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import jsonlines
 
+from inspect_ai._util.asyncfiles import is_s3_filename
 from inspect_ai._util.file import file
 
 from .._dataset import (
@@ -29,7 +30,7 @@ def json_dataset(
     limit: int | None = None,
     encoding: str = "utf-8",
     name: str | None = None,
-    fs_options: dict[str, Any] = {},
+    fs_options: dict[str, Any] | None = None,
 ) -> Dataset:
     r"""Read dataset from a JSON file.
 
@@ -72,8 +73,12 @@ def json_dataset(
         else json_dataset_reader
     )
 
+    # use readahead cache by default for s3
+    if fs_options is None and is_s3_filename(json_file):
+        fs_options = dict(default_fill_cache=True, default_cache_type="readahead")
+
     # read and convert samples
-    with file(json_file, "r", encoding=encoding, fs_options=fs_options) as f:
+    with file(json_file, "r", encoding=encoding, fs_options=fs_options or {}) as f:
         name = name if name else Path(json_file).stem
         dataset = MemoryDataset(
             samples=data_to_samples(dataset_reader(f), data_to_sample, auto_id),
@@ -103,5 +108,11 @@ def jsonlines_dataset_reader(file: TextIOWrapper) -> DatasetReader:
 
 
 def json_dataset_reader(file: TextIOWrapper) -> DatasetReader:
-    data = cast(list[dict[str, Any]], json.load(file))
-    return iter(data)
+    data = json.load(file)
+    if isinstance(data, list):
+        return iter(data)
+
+    if isinstance(data, dict):
+        return iter([data])
+
+    raise ValueError(f"Could not read json into a supported type, found: {type(data)=}")

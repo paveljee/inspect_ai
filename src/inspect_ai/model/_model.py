@@ -7,7 +7,7 @@ import os
 import time
 from contextvars import ContextVar
 from copy import copy, deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from types import TracebackType
 from typing import (
     Any,
@@ -22,12 +22,14 @@ from typing import (
     cast,
 )
 
+import anyio
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 from tenacity import (
     RetryCallState,
     retry,
 )
+from tenacity.wait import WaitBaseT
 
 from inspect_ai._util.constants import (
     DEFAULT_MAX_CONNECTIONS,
@@ -65,7 +67,7 @@ from inspect_ai.util._limit import (
     record_model_usage,
 )
 
-from ._cache import CacheEntry, CachePolicy, cache_fetch, cache_store
+from ._cache import CacheEntry, CachePolicy, cache_fetch, cache_store, epoch
 from ._call_tools import (
     disable_parallel_tools,
     execute_tools,
@@ -155,11 +157,16 @@ class ModelAPI(abc.ABC):
         """
         self.model_name = model_name
         self.base_url = base_url
+        self.api_key = api_key
+        self.api_key_vars = api_key_vars
+        self._apply_api_key_overrides()
 
+    def _apply_api_key_overrides(self) -> None:
         from inspect_ai.hooks._hooks import override_api_key
 
         # apply api key override
-        for key in api_key_vars:
+        api_key = self.api_key
+        for key in self.api_key_vars:
             # if there is an explicit api_key passed then it
             # overrides anything in the environment so use it
             if api_key is not None:
@@ -177,6 +184,13 @@ class ModelAPI(abc.ABC):
 
         # set any explicitly specified api key
         self.api_key = api_key
+
+    def initialize(self) -> None:
+        """Reinitialize the model API client.
+
+        This can be used to reinitialize the API keys.
+        """
+        self._apply_api_key_overrides()
 
     async def aclose(self) -> None:
         """Async close method for closing any client allocated for the model."""
@@ -251,6 +265,20 @@ class ModelAPI(abc.ABC):
         """
         return False
 
+    def retry_wait(self) -> WaitBaseT | None:
+        return None
+
+    def is_auth_failure(self, ex: Exception) -> bool:
+        """Check if this exception indicates an authentication failure.
+
+        Args:
+           ex: Exception to check for authentication failure
+
+        Returns:
+           True if this is an authentication error (e.g., 401 Unauthorized)
+        """
+        return False
+
     def collapse_user_messages(self) -> bool:
         """Collapse consecutive user messages into a single message."""
         return False
@@ -308,7 +336,10 @@ class Model:
     """Generation config."""
 
     def __init__(
-        self, api: ModelAPI, config: GenerateConfig, model_args: dict[str, Any] = {}
+        self,
+        api: ModelAPI,
+        config: GenerateConfig,
+        model_args: dict[str, Any] | None = None,
     ) -> None:
         """Create a model.
 
@@ -319,7 +350,7 @@ class Model:
         """
         self.api = api
         self.config = config
-        self.model_args = model_args
+        self.model_args = model_args if model_args is not None else {}
         self._role: str | None = None
 
         # state indicating whether our lifetime is bound by a context manager
@@ -379,7 +410,7 @@ class Model:
         tools: Sequence[Tool | ToolDef | ToolInfo | ToolSource] | ToolSource = [],
         tool_choice: ToolChoice | None = None,
         config: GenerateConfig = GenerateConfig(),
-        cache: bool | CachePolicy = False,
+        cache: bool | CachePolicy | NotGiven = NOT_GIVEN,
     ) -> ModelOutput:
         """Generate output from the model.
 
@@ -394,6 +425,14 @@ class Model:
         Returns:
            ModelOutput
         """
+        # if we have a TaskState then update the epoch. without this, it's possible
+        # we'd cache the same response for every single epoch
+        from inspect_ai.solver._task_state import sample_state
+
+        state = sample_state()
+        if state is not None:
+            epoch.set(state.epoch)
+
         # if we are the default model then update the displayed message count
         is_active_model = self == active_model()
         if is_active_model:
@@ -425,6 +464,13 @@ class Model:
         # merge passed config
         config = base_config.merge(config)
 
+        # resolve cache (prefer arg, fall back to config)
+        if isinstance(cache, NotGiven):
+            if config.cache is not None:
+                cache = config.cache
+            else:
+                cache = False
+
         # provide max_tokens from the model api if required
         if config.max_tokens is None:
             config.max_tokens = self.api.max_tokens_for_config(config)
@@ -444,7 +490,7 @@ class Model:
             input = [ChatMessageSystem(content=config.system_message)] + input
 
         # enforce concurrency limits
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
         working_start = sample_working_time()
         async with self._connection_concurrency(config):
             # generate
@@ -466,7 +512,7 @@ class Model:
             assert isinstance(event, ModelEvent)
             event.timestamp = start_time
             event.working_start = working_start
-            completed = datetime.now()
+            completed = datetime.now(timezone.utc)
             event.completed = completed
             event.working_time = (
                 output.time
@@ -482,7 +528,7 @@ class Model:
         input: str | list[ChatMessage],
         tools: Sequence[Tool | ToolDef | ToolSource] | ToolSource = [],
         config: GenerateConfig = GenerateConfig(),
-        cache: bool | CachePolicy = False,
+        cache: bool | CachePolicy | NotGiven = NOT_GIVEN,
     ) -> tuple[list[ChatMessage], ModelOutput]:
         """Generate output from the model, looping as long as the model calls tools.
 
@@ -532,7 +578,7 @@ class Model:
         tools: Sequence[Tool | ToolDef | ToolInfo | ToolSource] | ToolSource,
         tool_choice: ToolChoice | None,
         config: GenerateConfig,
-        cache: bool | CachePolicy = False,
+        cache: bool | CachePolicy | NotGiven = NOT_GIVEN,
     ) -> tuple[ModelOutput, BaseModel]:
         from inspect_ai.event._model import ModelEvent
         from inspect_ai.hooks._hooks import emit_model_cache_usage, emit_model_usage
@@ -614,13 +660,21 @@ class Model:
         if self.api.collapse_assistant_messages():
             input = collapse_consecutive_assistant_messages(input)
 
+        # resolve cache policy
+        if isinstance(cache, NotGiven):
+            cache_policy: bool | CachePolicy | None = config.cache
+        else:
+            cache_policy = cache
+
         @retry(
             **model_retry_config(
                 self.api.model_name,
                 config.max_retries,
                 config.timeout,
                 self.should_retry,
+                self.before_retry,
                 log_model_retry,
+                self.api.retry_wait(),
             )
         )
         async def generate() -> tuple[ModelOutput, BaseModel]:
@@ -628,9 +682,9 @@ class Model:
             assert tool_choice is not None
 
             cache_entry: CacheEntry | None
-            if cache:
-                if isinstance(cache, CachePolicy):
-                    policy = cache
+            if cache_policy:
+                if isinstance(cache_policy, CachePolicy):
+                    policy = cache_policy
                 else:
                     policy = CachePolicy()
 
@@ -675,17 +729,31 @@ class Model:
                 cache="write" if cache else None,
             )
 
+            # create timeout context manager if we have an attempt timeout
+            timeout_cm = (
+                anyio.move_on_after(config.attempt_timeout)
+                if config.attempt_timeout is not None
+                else contextlib.nullcontext()
+            )
+
             with trace_action(logger, "Model", f"generate ({str(self)})"):
                 time_start = time.monotonic()
                 try:
                     assert isinstance(event, ModelEvent)
                     with track_active_model_event(event):
-                        result = await self.api.generate(
-                            input=input,
-                            tools=tools_info,
-                            tool_choice=tool_choice,
-                            config=config,
-                        )
+                        with timeout_cm:
+                            result = await self.api.generate(
+                                input=input,
+                                tools=tools_info,
+                                tool_choice=tool_choice,
+                                config=config,
+                            )
+                        if (
+                            isinstance(timeout_cm, anyio.CancelScope)
+                            and timeout_cm.cancel_called
+                        ):
+                            raise AttemptTimeoutError(config.attempt_timeout)
+
                 finally:
                     time_elapsed = time.monotonic() - time_start
 
@@ -753,11 +821,24 @@ class Model:
 
     def should_retry(self, ex: BaseException) -> bool:
         if isinstance(ex, Exception):
+            # attempt timeout is always retried (we rely on `timeout`
+            # and/or `max_retries` for termination)
+            if isinstance(ex, AttemptTimeoutError):
+                return True
+
             # check standard should_retry() method
             retry = self.api.should_retry(ex)
             if retry:
                 report_http_retry()
                 return True
+
+            from inspect_ai.hooks._hooks import has_api_key_override
+
+            if has_api_key_override():
+                retry = self.api.is_auth_failure(ex)
+                if retry:
+                    report_http_retry()
+                    return True
 
             # see if the API implements legacy is_rate_limit() method
             is_rate_limit = getattr(self.api, "is_rate_limit", None)
@@ -774,6 +855,13 @@ class Model:
 
         # no retry
         return False
+
+    async def before_retry(self, ex: BaseException) -> None:
+        if isinstance(ex, Exception) and self.api.is_auth_failure(ex):
+            # close existing model instance
+            await self.api.aclose()
+            # re-initialize
+            self.api.initialize()
 
     # function to verify that its okay to call model apis
     def verify_model_apis(self) -> None:
@@ -865,6 +953,11 @@ class Model:
             complete(output, call)
 
         return complete, event
+
+
+class AttemptTimeoutError(RuntimeError):
+    def __init__(self, timeout: int | None) -> None:
+        super().__init__(f"attempt_timeout '{timeout or 0}' exceeded.")
 
 
 class ModelName:

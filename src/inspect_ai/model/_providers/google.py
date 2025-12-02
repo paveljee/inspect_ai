@@ -1,3 +1,4 @@
+import base64
 import functools
 import hashlib
 import json
@@ -13,9 +14,11 @@ from google.genai import Client
 from google.genai.errors import APIError, ClientError
 from google.genai.types import (
     Candidate,
+    CodeExecutionResult,
     Content,
     ContentListUnion,
     ContentListUnionDict,
+    ExecutableCode,
     File,
     FinishReason,
     FunctionCallingConfig,
@@ -30,12 +33,17 @@ from google.genai.types import (
     HarmBlockThreshold,
     HarmCategory,
     HttpOptions,
+    Image,
+    Language,
+    Outcome,
     Part,
     SafetySetting,
     SafetySettingDict,
     Schema,
     ThinkingConfig,
+    ThinkingLevel,
     Tool,
+    ToolCodeExecution,
     ToolConfig,
     ToolListUnion,
     Type,
@@ -83,7 +91,10 @@ from inspect_ai.model._generate_config import normalized_batch_config
 from inspect_ai.model._model import log_model_retry
 from inspect_ai.model._model_call import ModelCall
 from inspect_ai.model._providers._google_batch import GoogleBatcher
-from inspect_ai.model._providers._google_citations import get_candidate_citations
+from inspect_ai.model._providers._google_citations import (
+    distribute_citations_to_text_parts,
+    get_candidate_citations,
+)
 from inspect_ai.model._retry import model_retry_config
 from inspect_ai.tool import (
     ToolCall,
@@ -276,14 +287,15 @@ class GoogleGenAIAPI(ModelAPI):
 
             # Create google-genai types.
             gemini_contents = await as_chat_messages(client, input)
-            has_native_search, gemini_tools = (
+            has_native_tools, gemini_tools = (
                 self.chat_tools(tools) if len(tools) > 0 else (False, None)
             )
             gemini_tool_config = (
                 chat_tool_config(tool_choice)
-                if not has_native_search and len(tools) > 0
+                if not has_native_tools and len(tools) > 0
                 else None
             )
+            system_instruction = await extract_system_message_as_parts(client, input)
             parameters = GenerateContentConfig(
                 http_options=HttpOptions(
                     headers={HttpHooks.REQUEST_ID_HEADER: request_id}
@@ -296,10 +308,12 @@ class GoogleGenAIAPI(ModelAPI):
                 candidate_count=config.num_choices,
                 presence_penalty=config.presence_penalty,
                 frequency_penalty=config.frequency_penalty,
+                response_logprobs=config.logprobs,
+                logprobs=config.top_logprobs,
                 safety_settings=safety_settings_to_list(self.safety_settings),
                 tools=gemini_tools,
                 tool_config=gemini_tool_config,
-                system_instruction=await extract_system_message_as_parts(client, input),  # type: ignore[arg-type]
+                system_instruction=system_instruction,  # type: ignore[arg-type]
                 thinking_config=self.chat_thinking_config(config),
             )
             if config.response_schema is not None:
@@ -317,6 +331,7 @@ class GoogleGenAIAPI(ModelAPI):
                     generation_config=parameters,
                     tools=gemini_tools,
                     tool_config=gemini_tool_config,
+                    system_instruction=system_instruction,
                     response=response,
                     time=http_hooks.end_request(request_id),
                 )
@@ -370,8 +385,26 @@ class GoogleGenAIAPI(ModelAPI):
     def is_gemini_2_5(self) -> bool:
         return "gemini-2.5" in self.service_model_name()
 
+    def is_gemini_3(self) -> bool:
+        return "gemini-3" in self.service_model_name()
+
+    def is_gemini_3_plus(self) -> bool:
+        return (
+            self.is_gemini()
+            and not self.is_gemini_1_5()
+            and not self.is_gemini_2_0()
+            and not self.is_gemini_2_5()
+        )
+
     def is_gemini_thinking_only(self) -> bool:
-        return self.is_gemini_2_5() and "-pro" in self.service_model_name()
+        return (
+            self.is_gemini_2_5() or self.is_gemini_3()
+        ) and "-pro" in self.service_model_name()
+
+    @override
+    def emulate_reasoning_history(self) -> bool:
+        # older gemini models don't know about reasoning
+        return self.is_gemini_1_5() or self.is_gemini_2_0()
 
     @override
     def should_retry(self, ex: BaseException) -> bool:
@@ -384,6 +417,12 @@ class GoogleGenAIAPI(ModelAPI):
     def connection_key(self) -> str:
         """Scope for enforcing max_connections."""
         return str(self.api_key)
+
+    @override
+    def is_auth_failure(self, ex: Exception) -> bool:
+        if isinstance(ex, APIError):
+            return ex.code == 401
+        return False
 
     def handle_client_error(self, ex: ClientError) -> ModelOutput | Exception:
         if (
@@ -408,10 +447,12 @@ class GoogleGenAIAPI(ModelAPI):
             self.is_gemini() and not self.is_gemini_1_5() and not self.is_gemini_2_0()
         )
         if has_thinking_config:
-            if config.reasoning_tokens == 0:
+            # user is attempting to turn off reasoning, this only works for some models
+            # so we warn for those models where it can't be done.
+            if config.reasoning_tokens == 0 or config.reasoning_effort == "none":
                 if self.is_gemini_thinking_only():
                     # When reasoning_tokens is set to 0 and it's a thinking only model we don't
-                    # bother trying to shut down thining as this is not possible:
+                    # bother trying to shut down thinking as this is not possible:
                     #   https://ai.google.dev/gemini-api/docs/thinking#set-budget
                     # warn and return include_thoughts=True so the user sees what is happening
                     warn_once(
@@ -422,10 +463,30 @@ class GoogleGenAIAPI(ModelAPI):
                 else:
                     # otherwise do the disable
                     return ThinkingConfig(include_thoughts=False, thinking_budget=0)
-            else:
+
+            # thinking_level is now the preferred way of setting reasoning (thinking_budget is deprecated)
+            # consult it first for gemini 3+ models, otherwise fall through to tokens for other models
+            elif config.reasoning_effort is not None and self.is_gemini_3_plus():
+                match config.reasoning_effort:
+                    case "minimal" | "low":
+                        thinking_level: ThinkingLevel | None = ThinkingLevel.LOW
+                    case "medium" | "high":  # note: 'medium' thinking level coming soon
+                        thinking_level = ThinkingLevel.HIGH
+                    case _:
+                        thinking_level = None  # can't happen, keep mypy happy
+                return ThinkingConfig(
+                    include_thoughts=True, thinking_level=thinking_level
+                )
+
+            # enable thinking_budget if specified
+            elif config.reasoning_tokens is not None:
                 return ThinkingConfig(
                     include_thoughts=True, thinking_budget=config.reasoning_tokens
                 )
+
+            # generic thinking with defaults
+            else:
+                return ThinkingConfig(include_thoughts=True)
         else:
             return None
 
@@ -438,9 +499,24 @@ class GoogleGenAIAPI(ModelAPI):
             and (self.is_gemini() and not self.is_gemini_1_5())
         )
 
+    def _use_native_code_execution(self, tool: ToolInfo) -> bool:
+        return (
+            tool.name == "code_execution"
+            and tool.options is not None
+            and "google" in tool.options.get("providers", {})
+            # Support "starts with" Gemini 2.0
+            and (self.is_gemini() and not self.is_gemini_1_5())
+        )
+
     def _categorize_tool(
-        self, acc: tuple[bool, list[FunctionDeclaration]], tool: ToolInfo
-    ) -> tuple[bool, list[FunctionDeclaration]]:
+        self,
+        acc: tuple[
+            GoogleSearch | None, ToolCodeExecution | None, list[FunctionDeclaration]
+        ],
+        tool: ToolInfo,
+    ) -> tuple[
+        GoogleSearch | None, ToolCodeExecution | None, list[FunctionDeclaration]
+    ]:
         """Reducer function that categorizes tools into native search vs function declarations.
 
         Returns:
@@ -449,11 +525,14 @@ class GoogleGenAIAPI(ModelAPI):
             all non-native-search tools converted to FunctionDeclaration objects.
         """
         return (
-            (True, acc[1])
-            if self._use_native_search(tool)
+            (self._google_search_options(tool.options), acc[1], acc[2])
+            if tool.options and self._use_native_search(tool)
+            else (acc[0], ToolCodeExecution(), acc[2])
+            if tool.options and self._use_native_code_execution(tool)
             else (
                 acc[0],
-                acc[1]
+                acc[1],
+                acc[2]
                 + [
                     FunctionDeclaration(
                         name=tool.name,
@@ -466,23 +545,39 @@ class GoogleGenAIAPI(ModelAPI):
             )
         )
 
+    def _google_search_options(self, options: dict[str, Any]) -> GoogleSearch:
+        gemini_options = options.get("gemini", None)
+        if isinstance(gemini_options, dict):
+            return GoogleSearch.model_validate(gemini_options)
+        else:
+            return GoogleSearch()
+
     def chat_tools(self, tools: list[ToolInfo]) -> tuple[bool, ToolListUnion]:
-        has_native_search, function_declarations = functools.reduce(
-            self._categorize_tool, tools, (False, list[FunctionDeclaration]())
+        # cleave up tools (must use either native tools or client tools but not both)
+        search_seed: GoogleSearch | None = None
+        execution_seed: ToolCodeExecution | None = None
+        google_search, code_execution, function_declarations = functools.reduce(
+            self._categorize_tool,
+            tools,
+            (search_seed, execution_seed, list[FunctionDeclaration]()),
         )
 
-        # TODO: Google doesn't yet support native search concurrently with other tools.
-        # Revisit this from time to time to adapt when they fix it.
-        if has_native_search and function_declarations:
-            raise ValueError(
-                "Gemini does not yet support native search concurrently with other tools."
-            )
+        # native tools
+        if google_search or code_execution:
+            if function_declarations:
+                raise ValueError(
+                    "Gemini does not yet support native web search or code execution concurrently with other tools."
+                )
+            native_tools: ToolListUnion = []
+            if google_search:
+                native_tools.append(Tool(google_search=google_search))
+            if code_execution:
+                native_tools.append(Tool(code_execution=code_execution))
+            return (True, native_tools)
 
-        return (
-            (True, [Tool(google_search=GoogleSearch())])
-            if has_native_search
-            else (False, [Tool(function_declarations=function_declarations)])
-        )
+        # client tools
+        else:
+            return (False, [Tool(function_declarations=function_declarations)])
 
     def _resolve_batcher(
         self, config: GenerateConfig, http_options: HttpOptions
@@ -506,6 +601,7 @@ class GoogleGenAIAPI(ModelAPI):
                 config.max_retries,
                 config.timeout,
                 self.should_retry,
+                lambda ex: None,
                 log_model_retry,
             ),
             self.service_model_name(),
@@ -529,16 +625,28 @@ def build_model_call(
     safety_settings: list[SafetySettingDict],
     tools: ToolListUnion | None,
     tool_config: ToolConfig | None,
+    system_instruction: list[File | Part | Image | str] | None,
     response: GenerateContentResponse | None,
     time: float | None,
 ) -> ModelCall:
     return ModelCall.create(
         request=dict(
             contents=contents,
-            generation_config=generation_config,
+            # the excluded fields are passed to the Python API as part of
+            # GenerateContentConfig however they are passed separately in
+            # the actual http request body, so reflect that here
+            generation_config=generation_config.model_copy(
+                update={
+                    "safety_settings": None,
+                    "tools": None,
+                    "tool_config": None,
+                    "system_instruction": None,
+                }
+            ),
             safety_settings=safety_settings,
             tools=tools if tools is not None else None,
             tool_config=tool_config if tool_config is not None else None,
+            system_instruction=system_instruction,
         ),
         response=response if response is not None else {},
         filter=model_call_filter,
@@ -599,6 +707,7 @@ async def content(
     client: Client,
     message: ChatMessageUser | ChatMessageAssistant | ChatMessageTool,
 ) -> Content:
+    working_reasoning_block = None
     if isinstance(message, ChatMessageUser):
         if isinstance(message.content, str):
             return Content(
@@ -612,27 +721,85 @@ async def content(
         )
     elif isinstance(message, ChatMessageAssistant):
         content_parts: list[Part] = []
-        # tool call parts
-        if message.tool_calls is not None:
-            content_parts.extend(
-                [
-                    Part.from_function_call(
-                        name=tool_call.function,
-                        args=tool_call.arguments,
-                    )
-                    for tool_call in message.tool_calls
-                ]
-            )
 
-        # content parts
         if isinstance(message.content, str):
             content_parts.append(Part(text=message.content or NO_CONTENT))
         else:
-            content_parts.extend(
-                [await content_part(client, content) for content in message.content]
-            )
+            for i, content in enumerate(message.content):
+                if isinstance(content, ContentReasoning):
+                    # if this is encrypted reasoning, save it for applying the thought_signature
+                    # to the next part (don't emit a separate thought part during replay)
+                    if content.redacted:
+                        working_reasoning_block = content
+                    else:
+                        # unencrypted reasoning (for older models or debugging)
+                        content_parts.append(Part(text=content.reasoning, thought=True))
 
-        # return parts
+                else:
+                    # server side tool use
+                    if isinstance(content, ContentToolUse):
+                        parts_to_append = parts_from_server_tool_use(content)
+
+                    # other content
+                    else:
+                        parts_to_append = [await content_part(client, content)]
+
+                    # If previously there was a reasoning block, we need to set the "thought_signature"
+                    # using the reasoning from that block.
+                    # However, if there are tool calls in this message, the signature should go on
+                    # the first tool call instead, not on text or server tool use parts
+                    # (per Gemini API docs).
+                    if (
+                        working_reasoning_block is not None
+                        and message.tool_calls is None
+                    ):
+                        if (
+                            working_reasoning_block.reasoning is not None
+                            and working_reasoning_block.redacted
+                        ):
+                            parts_to_append[0].thought_signature = base64.b64decode(
+                                working_reasoning_block.reasoning.encode()
+                            )
+                        else:
+                            logger.warning(
+                                "Reasoning block must have a reasoning signature to set thought_signature."
+                            )
+                        # Now, reset the previous reasoning block.
+                        working_reasoning_block = None
+                    content_parts.extend(parts_to_append)
+
+        # Now handle tool calls
+        if message.tool_calls is not None:
+            # Per Gemini API docs: thought_signature goes on the first tool call in a message.
+            # For parallel function calls, only the first FC gets the signature.
+            # For sequential function calls (multi-step), each step is a separate message,
+            # so each will have its own reasoning block and signature.
+            # The loop below applies the signature to the first tool call (when working_reasoning_block
+            # is not None), then clears it so subsequent tool calls don't get it.
+            for tool_call in message.tool_calls:
+                # extract the part
+                part = Part.from_function_call(
+                    name=tool_call.function,
+                    args=tool_call.arguments,
+                )
+
+                # handle reasoning block if available
+                if working_reasoning_block is not None:
+                    # tool call reasoning should always use a thought_signature
+                    if (
+                        working_reasoning_block.reasoning is not None
+                        and working_reasoning_block.redacted
+                    ):
+                        part.thought_signature = base64.b64decode(
+                            working_reasoning_block.reasoning.encode()
+                        )
+                    else:
+                        logger.warning(
+                            "Reasoning block must have a reasoning signature to set thought_signature."
+                        )
+                    working_reasoning_block = None
+
+                content_parts.append(part)
         return Content(role="model", parts=content_parts)
 
     elif isinstance(message, ChatMessageTool):
@@ -653,11 +820,7 @@ async def content_part(client: Client, content: InspectContent | str) -> Part:
     elif isinstance(content, ContentText):
         return Part.from_text(text=content.text or NO_CONTENT)
     elif isinstance(content, ContentReasoning):
-        return Part(
-            text=content.reasoning or NO_CONTENT,
-            thought=True,
-            thought_signature=content.signature.encode() if content.signature else None,
-        )
+        raise RuntimeError("content_part should never encounter ContentReasoning")
     elif isinstance(content, ContentData):
         raise RuntimeError("Google provider should never encounter ContentData")
     elif isinstance(content, ContentToolUse):
@@ -683,8 +846,8 @@ async def chat_content_to_part(
 async def extract_system_message_as_parts(
     client: Client,
     messages: list[ChatMessage],
-) -> list[File | Part | str] | None:
-    system_parts: list[File | Part | str] = []
+) -> list[File | Part | Image | str] | None:
+    system_parts: list[File | Part | Image | str] = []
     for message in messages:
         if message.role == "system":
             content = message.content
@@ -806,53 +969,91 @@ def chat_tool_config(tool_choice: ToolChoice) -> ToolConfig:
 def completion_choice_from_candidate(
     model: str, candidate: Candidate
 ) -> ChatCompletionChoice:
-    # content can be None when the finish_reason is SAFETY
-    if candidate.content is None:
-        content: (
-            str
-            | list[
-                ContentText
-                | ContentReasoning
-                | ContentImage
-                | ContentToolUse
-                | ContentAudio
-                | ContentVideo
-                | ContentData
-                | ContentDocument
-            ]
-        ) = ""
-    # content.parts can be None when the finish_reason is MALFORMED_FUNCTION_CALL
-    elif candidate.content.parts is None:
-        content = ""
-    else:
-        # Google's grounded search metadata provides start/end indices for cited
-        # text based on the joining of all separate text parts (despite the doc
-        # suggesting that they provide part_index). Thankfully, the doc also says:
-        #
-        #   Exactly one field within a Part should be set, representing the specific type
-        #   of content being conveyed. Using multiple fields within the same `Part`
-        #   instance is considered invalid.
-        #
-        # That means that we can safely collapse adjacent parts with a `text` field
-        # and not fear that we're breaking other types of content parts
-        parts = functools.reduce(
-            _combine_text_parts, candidate.content.parts, list[Part]()
-        )
+    # content we'll return
+    content: list[
+        ContentText
+        | ContentReasoning
+        | ContentImage
+        | ContentToolUse
+        | ContentAudio
+        | ContentVideo
+        | ContentData
+        | ContentDocument
+    ] = []
 
-        content = [
-            ContentReasoning(
-                reasoning=part.text,
-                signature=part.thought_signature.decode()
-                if part.thought_signature
-                else None,
-            )
-            if part.thought is True
-            else ContentText(
-                text=part.text, citations=get_candidate_citations(candidate)
-            )
-            for part in parts
-            if part.text is not None
-        ]
+    # google distributes reasoning text and thought_signature across multiple
+    # content parts -- we need to consolidate this into a single ContentReasoning
+    # to match our schema (we'll unroll it back into parts on replay)
+    working_reasoning_block: ContentReasoning | None = None
+
+    # content can be None when the finish_reason is SAFETY
+    # content.parts can be None when the finish_reason is MALFORMED_FUNCTION_CALL
+    if candidate.content is not None and candidate.content.parts is not None:
+        # traverse parts
+        parts = candidate.content.parts
+        for i, part in enumerate(parts):
+            if part.text is None and part.executable_code is None:
+                continue  # We only care about text and executable_code here
+
+            if part.code_execution_result is not None:
+                continue  # We pickup code execution results with part.executable_code
+
+            if part.text is not None and part.thought is True:
+                # we'll create and append a reasoning block, saving a reference
+                # to it so that we can ammend it with a thought signature if/when
+                # one arrives later in the stream (note that multiple reasoning
+                # parts without a signature can occur)
+                working_reasoning_block = ContentReasoning(
+                    reasoning=part.text,
+                    redacted=False,
+                )
+                content.append(working_reasoning_block)
+            else:
+                # Check if this block has an associated thought_signature and
+                # whether it corresponds to the previous ContentReasoning block.
+                if part.thought_signature is not None:
+                    if working_reasoning_block is None:
+                        # append the reasoning block to the list
+                        content.append(
+                            ContentReasoning(
+                                reasoning=base64.b64encode(
+                                    part.thought_signature
+                                ).decode(),
+                                redacted=True,
+                            )
+                        )
+                    else:
+                        # attach the though_signature to the previous reasoning block
+                        working_reasoning_block.summary = (
+                            working_reasoning_block.reasoning
+                        )
+                        working_reasoning_block.reasoning = base64.b64encode(
+                            part.thought_signature
+                        ).decode()
+                        working_reasoning_block.redacted = True
+                        # clear it out
+                        working_reasoning_block = None
+
+                if part.text is not None:
+                    content.append(ContentText(text=part.text))
+                if part.executable_code is not None:
+                    # lookahead for execution result
+                    code_execution_result = (
+                        parts[i + 1].code_execution_result
+                        if i + 1 < len(parts)
+                        else None
+                    )
+                    # append tool use
+                    content.append(
+                        server_tool_use_from_executable_code(
+                            part.executable_code, code_execution_result
+                        )
+                    )
+
+    # distribute citations to individual ContentText parts with adjusted indexes
+    citations = get_candidate_citations(candidate)
+    if citations:
+        distribute_citations_to_text_parts(content, citations)
 
     # now tool calls
     tool_calls: list[ToolCall] = []
@@ -860,19 +1061,41 @@ def completion_choice_from_candidate(
         for part in candidate.content.parts:
             if part.function_call:
                 if (
-                    part.function_call is not None
-                    and part.function_call.name is not None
-                    and part.function_call.args is not None
+                    part.function_call is None
+                    or part.function_call.name is None
+                    or part.function_call.args is None
                 ):
-                    tool_calls.append(
-                        ToolCall(
-                            id=f"{part.function_call.name}_{uuid()}",
-                            function=part.function_call.name,
-                            arguments=part.function_call.args,
-                        )
-                    )
-                else:
                     raise ValueError(f"Incomplete function call: {part.function_call}")
+
+                # If the part has a thought_signature, try and associate it with the previous working block
+                if part.thought_signature:
+                    if working_reasoning_block is None:
+                        # We make the assumption that tool calls don't have independent reasoning
+                        # blocks unless they are preceded by a reasoning block.
+                        reasoning_block = ContentReasoning(
+                            reasoning=base64.b64encode(part.thought_signature).decode(),
+                            redacted=True,
+                        )
+
+                        content.append(reasoning_block)
+                    else:
+                        # attach the though_signature to the previous reasoning block
+                        working_reasoning_block.summary = (
+                            working_reasoning_block.reasoning
+                        )
+                        working_reasoning_block.reasoning = base64.b64encode(
+                            part.thought_signature
+                        ).decode()
+                        working_reasoning_block.redacted = True
+                        working_reasoning_block = None
+
+                tool_calls.append(
+                    ToolCall(
+                        id=f"{part.function_call.name}_{uuid()}",
+                        function=part.function_call.name,
+                        arguments=part.function_call.args,
+                    )
+                )
 
     # stop reason
     stop_reason = finish_reason_to_stop_reason(
@@ -882,7 +1105,7 @@ def completion_choice_from_candidate(
     # build choice
     choice = ChatCompletionChoice(
         message=ChatMessageAssistant(
-            content=content,
+            content=content if len(content) > 0 else "",
             tool_calls=tool_calls if len(tool_calls) > 0 else None,
             model=model,
             source="generate",
@@ -980,6 +1203,45 @@ def usage_metadata_to_model_usage(
         total_tokens=metadata.total_token_count or 0,
         reasoning_tokens=metadata.thoughts_token_count or 0,
     )
+
+
+def server_tool_use_from_executable_code(
+    executable_code: ExecutableCode, result: CodeExecutionResult | None
+) -> ContentToolUse:
+    # parse out output and error
+    if result is not None:
+        result_output = result.output or ""
+        if result.outcome is not None and result.outcome != Outcome.OUTCOME_OK:
+            result_error: str | None = result.outcome
+        else:
+            result_error = None
+    else:
+        result_output = ""
+        result_error = None
+
+    # return tool use
+    return ContentToolUse(
+        tool_type="code_execution",
+        id="",
+        name=executable_code.language or Language.LANGUAGE_UNSPECIFIED,
+        arguments=executable_code.code or "",
+        result=result_output,
+        error=result_error,
+    )
+
+
+def parts_from_server_tool_use(tool: ContentToolUse) -> list[Part]:
+    parts: list[Part] = [
+        Part.from_executable_code(code=tool.arguments, language=Language(tool.name))
+    ]
+    if tool.result or tool.error:
+        parts.append(
+            Part.from_code_execution_result(
+                outcome=Outcome(tool.error) if tool.error else Outcome.OUTCOME_OK,
+                output=tool.result,
+            )
+        )
+    return parts
 
 
 def finish_reason_to_stop_reason(finish_reason: FinishReason) -> StopReason:
@@ -1108,16 +1370,3 @@ async def file_for_content(
         files_db.put(content_sha256, str(upload.name))
         # return the file
         return upload
-
-
-def _combine_text_parts(acc: list[Part], part: Part) -> list[Part]:
-    """Combine adjacent text parts into a single part."""
-    return (
-        acc + [part]
-        if part.text is None
-        or part.thought is True
-        or len(acc) == 0
-        or acc[-1].text is None
-        or acc[-1].thought is True
-        else acc[:-1] + [Part(text=acc[-1].text + part.text)]
-    )

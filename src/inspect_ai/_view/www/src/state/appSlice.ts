@@ -1,5 +1,5 @@
 import { StateSnapshot } from "react-virtuoso";
-import { AppState, AppStatus } from "../app/types";
+import { AppState } from "../app/types";
 import { Capabilities } from "../client/api/types";
 import { kLogViewSamplesTabId, kSampleTranscriptTabId } from "../constants";
 import { clearDocumentSelection } from "../utils/browser";
@@ -9,9 +9,10 @@ export interface AppSlice {
   app: AppState;
   capabilities: Capabilities;
   appActions: {
-    setStatus: (status: AppStatus) => void;
+    setLoading: (loading: boolean, error?: Error) => void;
     setShowFind: (show: boolean) => void;
     hideFind: () => void;
+    setNativeFind: (nativeFind: boolean) => void;
 
     setShowingSampleDialog: (showing: boolean) => void;
     setShowingTranscriptFilterDialog: (showing: boolean) => void;
@@ -65,6 +66,8 @@ export interface AppSlice {
     setSingleFileMode: (singleFile: boolean) => void;
 
     setDisplayMode: (mode: "raw" | "rendered") => void;
+
+    setLogsSampleView: (logsSampleView: boolean) => void;
   };
 }
 
@@ -72,7 +75,7 @@ const kDefaultWorkspaceTab = kLogViewSamplesTabId;
 const kDefaultSampleTab = kSampleTranscriptTabId;
 
 const initialState: AppState = {
-  status: { loading: false },
+  status: { loading: 0, syncing: false },
   showFind: false,
   dialogs: {
     sample: false,
@@ -91,6 +94,7 @@ const initialState: AppState = {
   propertyBags: {},
   pagination: {},
   displayMode: "rendered",
+  logsSampleView: false,
 };
 
 export const createAppSlice = (
@@ -117,9 +121,13 @@ export const createAppSlice = (
 
     // Actions
     appActions: {
-      setStatus: (status: AppStatus) =>
+      setLoading: (loading: boolean, error?: Error) =>
         set((state) => {
-          state.app.status = status;
+          state.app.status.loading = Math.max(
+            state.app.status.loading + (loading ? 1 : -1),
+            0,
+          );
+          state.app.status.error = error;
         }),
 
       setShowFind: (show: boolean) =>
@@ -133,6 +141,10 @@ export const createAppSlice = (
           state.app.showFind = false;
         });
       },
+      setNativeFind: (nativeFind: boolean) =>
+        set((state) => {
+          state.app.nativeFind = nativeFind;
+        }),
       setShowingSampleDialog: (showing: boolean) => {
         const state = get();
         const isShowing = state.app.dialogs.sample;
@@ -350,6 +362,11 @@ export const createAppSlice = (
       setDisplayMode: (mode: "raw" | "rendered") => {
         set((state) => {
           state.app.displayMode = mode;
+        });
+      },
+      setLogsSampleView: (logsSampleView: boolean) => {
+        set((state) => {
+          state.app.logsSampleView = logsSampleView;
         });
       },
     },

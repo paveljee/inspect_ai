@@ -5,10 +5,12 @@ import { FlatSampleError } from "./error/FlatSampleErrorView";
 
 import { FC, ReactNode } from "react";
 import { SampleSummary } from "../../client/api/types";
-import { useSampleDescriptor, useScore } from "../../state/hooks";
+import { useSampleDescriptor, useSelectedScores } from "../../state/hooks";
 import { RenderedText } from "../content/RenderedText";
 import styles from "./SampleSummaryView.module.css";
 import { SamplesDescriptor } from "./descriptor/samplesDescriptor";
+
+const kMaxRowTextSize = 1024 * 5;
 
 interface SampleSummaryViewProps {
   parent_id: string;
@@ -90,7 +92,7 @@ export const SampleSummaryView: FC<SampleSummaryViewProps> = ({
   sample,
 }) => {
   const sampleDescriptor = useSampleDescriptor();
-  const currentScore = useScore();
+  const selectedScores = useSelectedScores();
   if (!sampleDescriptor) {
     return undefined;
   }
@@ -117,7 +119,11 @@ export const SampleSummaryView: FC<SampleSummaryViewProps> = ({
 
   columns.push({
     label: "Input",
-    value: <RenderedText markdown={fields.input.join(" ")} />,
+    value: (
+      <RenderedText
+        markdown={fields.input.join(" ").slice(0, kMaxRowTextSize)}
+      />
+    ),
     size: `minmax(auto, 5fr)`,
     clamp: true,
   });
@@ -127,7 +133,10 @@ export const SampleSummaryView: FC<SampleSummaryViewProps> = ({
       label: "Target",
       value: (
         <RenderedText
-          markdown={arrayToString(fields?.target || "none")}
+          markdown={arrayToString(fields?.target || "none").slice(
+            0,
+            kMaxRowTextSize,
+          )}
           className={clsx("no-last-para-padding", styles.target)}
         />
       ),
@@ -141,7 +150,7 @@ export const SampleSummaryView: FC<SampleSummaryViewProps> = ({
       label: "Answer",
       value: sample ? (
         <RenderedText
-          markdown={fields.answer || ""}
+          markdown={(fields.answer || "").slice(0, kMaxRowTextSize)}
           className={clsx("no-last-para-padding", styles.answer)}
         />
       ) : (
@@ -187,17 +196,29 @@ export const SampleSummaryView: FC<SampleSummaryViewProps> = ({
     });
   }
 
-  columns.push({
-    label: "Score",
-    value: fields.error ? (
-      <FlatSampleError message={fields.error} />
-    ) : (
-      sampleDescriptor?.evalDescriptor.score(sample, currentScore)?.render() ||
-      ""
-    ),
-    size: "fit-content(15em)",
-    center: true,
-  });
+  if (selectedScores && selectedScores.length > 0) {
+    selectedScores.forEach((scoreLabel) => {
+      columns.push({
+        label: selectedScores.length === 1 ? "Score" : scoreLabel.name,
+        value: fields.error ? (
+          <FlatSampleError message={fields.error} />
+        ) : (
+          sampleDescriptor?.evalDescriptor
+            .score(sample, scoreLabel)
+            ?.render() || ""
+        ),
+        size: "fit-content(15em)",
+        center: true,
+      });
+    });
+  } else {
+    columns.push({
+      label: "Score",
+      value: fields.error ? <FlatSampleError message={fields.error} /> : "",
+      size: "fit-content(15em)",
+      center: true,
+    });
+  }
 
   return (
     <div
@@ -218,7 +239,7 @@ export const SampleSummaryView: FC<SampleSummaryViewProps> = ({
             className={clsx(
               "text-style-label",
               "text-style-secondary",
-              "text-size-base",
+              "text-size-smallest",
               col.title ? styles.titled : undefined,
               col.center ? styles.centerLabel : undefined,
             )}

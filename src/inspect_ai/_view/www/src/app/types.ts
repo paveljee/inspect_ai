@@ -3,6 +3,7 @@ import {
   ColumnResizeMode,
   SortingState,
 } from "@tanstack/react-table";
+import { GridState } from "ag-grid-community";
 import { StateSnapshot } from "react-virtuoso";
 import {
   ApprovalEvent,
@@ -25,19 +26,18 @@ import {
 } from "../@types/log";
 import {
   AttachmentData,
-  EvalLogHeader,
-  EvalSummary,
+  EvalHeader,
   EventData,
-  LogFile,
-  LogFiles,
-  LogOverview,
+  LogDetails,
+  LogHandle,
+  LogPreview,
   PendingSamples,
   SampleSummary,
 } from "../client/api/types";
-import { ScorerInfo } from "../state/scoring";
 
 export interface AppState {
   status: AppStatus;
+  nativeFind?: boolean;
   showFind: boolean;
   tabs: {
     workspace: string;
@@ -64,18 +64,35 @@ export interface AppState {
   pagination: Record<string, { page: number; pageSize: number }>;
   singleFileMode?: boolean;
   displayMode?: "rendered" | "raw";
+  logsSampleView: boolean;
+}
+
+export interface DisplayedSample {
+  logFile: string;
+  sampleId: string | number;
+  epoch: number;
 }
 
 export interface LogsState {
-  logs: LogFiles;
+  logDir?: string;
+  logs: LogHandle[];
+  logPreviews: Record<string, LogPreview>;
+  logDetails: Record<string, LogDetails>;
   evalSet?: EvalSet;
-  logOverviews: Record<string, LogOverview>;
-  logOverviewsLoading: boolean;
-  selectedLogIndex: number;
   selectedLogFile?: string;
   listing: LogsListing;
-  loadingFiles: Set<string>;
-  pendingRequests: Map<string, Promise<EvalLogHeader | null>>;
+  pendingRequests: Map<string, Promise<EvalHeader | null>>;
+  dbStats: {
+    logCount: number;
+    previewCount: number;
+    detailsCount: number;
+  };
+  samplesListState: {
+    gridState?: GridState;
+    displayedSamples?: Array<DisplayedSample>;
+  };
+  flow?: string;
+  flowDir?: string;
 }
 
 export interface LogsListing {
@@ -85,14 +102,20 @@ export interface LogsListing {
   columnResizeMode?: ColumnResizeMode;
   columnSizes?: Record<string, number>;
   filteredCount?: number;
-  watchedLogs?: LogFile[];
+  watchedLogs?: LogHandle[];
+  selectedRowIndex?: number | null;
+}
+
+export interface SampleHandle {
+  id: string | number;
+  epoch: number;
 }
 
 export interface LogState {
   loadedLog?: string;
 
-  selectedSampleIndex: number;
-  selectedLogSummary?: EvalSummary;
+  selectedSampleHandle?: SampleHandle;
+  selectedLogDetails?: LogDetails;
   pendingSampleSummaries?: PendingSamples;
 
   filter: string;
@@ -100,8 +123,10 @@ export interface LogState {
 
   epoch: string;
   sort: string;
-  score?: ScoreLabel;
-  scores?: ScorerInfo[];
+  selectedScores?: ScoreLabel[];
+  scores?: ScoreLabel[];
+
+  filteredSampleCount?: number;
 }
 
 export type SampleStatus = "ok" | "loading" | "streaming" | "error";
@@ -153,13 +178,17 @@ export type Event =
   | SubtaskEvent;
 
 export interface AppStatus {
-  loading: boolean;
+  // Waiting while loading data, show large form of progress
+  loading: number;
+
+  // Background syncing data, show small form of activity
+  syncing: boolean;
   error?: Error;
 }
 
 export interface CurrentLog {
   name: string;
-  contents: EvalSummary;
+  contents: LogDetails;
 }
 
 export interface Logs {

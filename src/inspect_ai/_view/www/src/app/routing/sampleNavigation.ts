@@ -1,14 +1,21 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useFilteredSamples } from "../../state/hooks";
 import { useStore } from "../../state/store";
 import { directoryRelativeUrl } from "../../utils/uri";
-import { logUrl, logUrlRaw, sampleUrl, useLogRouteParams } from "./url";
+import { sampleIdsEqual } from "../shared/sample";
+import {
+  logSamplesUrl,
+  logsUrl,
+  logsUrlRaw,
+  samplesSampleUrl,
+  useLogRouteParams,
+} from "./url";
 
 export const useLogNavigation = () => {
   const navigate = useNavigate();
   const { logPath } = useLogRouteParams();
-  const logs = useStore((state) => state.logs.logs);
+  const logDir = useStore((state) => state.logs.logDir);
   const loadedLog = useStore((state) => state.log.loadedLog);
 
   const selectTab = useCallback(
@@ -16,15 +23,15 @@ export const useLogNavigation = () => {
       // Only update URL if we have a loaded log
       if (loadedLog && logPath) {
         // We already have the logPath from params, just navigate to the tab
-        const url = logUrlRaw(logPath, tabId);
+        const url = logsUrlRaw(logPath, tabId);
         navigate(url);
       } else if (loadedLog) {
         // Fallback to constructing the path if needed
-        const url = logUrl(loadedLog, logs.log_dir, tabId);
+        const url = logsUrl(loadedLog, logDir, tabId);
         navigate(url);
       }
     },
-    [loadedLog, logPath, logs.log_dir, navigate],
+    [loadedLog, logPath, logDir, navigate],
   );
 
   return {
@@ -35,7 +42,7 @@ export const useLogNavigation = () => {
 export const useSampleUrl = () => {
   const { logPath, tabId, sampleTabId } = useLogRouteParams();
 
-  const logDirectory = useStore((state) => state.logs.logs.log_dir);
+  const logDirectory = useStore((state) => state.logs.logDir);
 
   const selectedLogFile = useStore((state) => state.logs.selectedLogFile);
 
@@ -63,7 +70,7 @@ export const useSampleUrl = () => {
       const resolvedPath = resolveLogPath();
       if (resolvedPath) {
         const currentSampleTabId = specificSampleTabId || sampleTabId;
-        const url = sampleUrl(
+        const url = logSamplesUrl(
           resolvedPath,
           sampleId,
           epoch,
@@ -86,7 +93,7 @@ export const useSampleNavigation = () => {
   const navigate = useNavigate();
 
   // The log directory
-  const logDirectory = useStore((state) => state.logs.logs.log_dir);
+  const logDirectory = useStore((state) => state.logs.logDir);
 
   // The log
   const { logPath, tabId, sampleTabId } = useLogRouteParams();
@@ -112,9 +119,19 @@ export const useSampleNavigation = () => {
   const sampleSummaries = useFilteredSamples();
 
   // Sample hooks
-  const selectedSampleIndex = useStore(
-    (state) => state.log.selectedSampleIndex,
+  const selectedSampleHandle = useStore(
+    (state) => state.log.selectedSampleHandle,
   );
+
+  const selectedSampleIndex = useMemo(() => {
+    return sampleSummaries.findIndex((summary) => {
+      return (
+        sampleIdsEqual(summary.id, selectedSampleHandle?.id) &&
+        summary.epoch === selectedSampleHandle?.epoch
+      );
+    });
+  }, [selectedSampleHandle, sampleSummaries]);
+
   const selectSample = useStore((state) => state.logActions.selectSample);
   const setShowingSampleDialog = useStore(
     (state) => state.appActions.setShowingSampleDialog,
@@ -123,23 +140,18 @@ export const useSampleNavigation = () => {
 
   // Navigate to a specific sample with index
   const showSample = useCallback(
-    (
-      index: number,
-      id: string | number,
-      epoch: number,
-      specifiedSampleTabId?: string,
-    ) => {
+    (id: string | number, epoch: number, specifiedSampleTabId?: string) => {
       const resolvedPath = resolveLogPath();
 
       if (resolvedPath) {
         // Update internal state
-        selectSample(index);
+        selectSample(id, epoch);
         setShowingSampleDialog(true);
 
         // Use specified sampleTabId if provided, otherwise use current sampleTabId from URL params
         const currentSampleTabId = specifiedSampleTabId || sampleTabId;
 
-        const url = sampleUrl(resolvedPath, id, epoch, currentSampleTabId);
+        const url = logSamplesUrl(resolvedPath, id, epoch, currentSampleTabId);
 
         // Navigate to the sample URL
         navigate(url);
@@ -163,7 +175,7 @@ export const useSampleNavigation = () => {
           const resolvedPath = resolveLogPath();
           if (resolvedPath) {
             const summary = sampleSummaries[index];
-            const url = sampleUrl(
+            const url = logSamplesUrl(
               resolvedPath,
               summary.id,
               summary.epoch,
@@ -174,12 +186,13 @@ export const useSampleNavigation = () => {
             navigate(url);
           }
         } else {
-          selectSample(index);
+          const summary = sampleSummaries[index];
+          selectSample(summary.id, summary.epoch);
         }
       }
     },
     [
-      selectedSampleIndex,
+      selectedSampleHandle,
       showSample,
       sampleTabId,
       sampleSummaries,
@@ -220,7 +233,7 @@ export const useSampleNavigation = () => {
       const resolvedPath = resolveLogPath();
       if (resolvedPath) {
         const currentSampleTabId = specificSampleTabId || sampleTabId;
-        const url = sampleUrl(
+        const url = logSamplesUrl(
           resolvedPath,
           sampleId,
           epoch,
@@ -237,7 +250,7 @@ export const useSampleNavigation = () => {
   const clearSampleUrl = useCallback(() => {
     const resolvedPath = resolveLogPath();
     if (resolvedPath) {
-      const url = logUrlRaw(resolvedPath, tabId);
+      const url = logsUrlRaw(resolvedPath, tabId);
       navigate(url);
     }
   }, [resolveLogPath, navigate, tabId]);
@@ -262,5 +275,39 @@ export const useSampleDetailNavigation = () => {
   return {
     message,
     event,
+  };
+};
+
+/**
+ * Hook for navigating to sample details from the samples grid.
+ * Uses the /samples route pattern instead of /logs.
+ */
+export const useSamplesGridNavigation = () => {
+  const navigate = useNavigate();
+  const logDirectory = useStore((state) => state.logs.logDir);
+
+  const navigateToSampleDetail = useCallback(
+    (
+      logFile: string,
+      sampleId: string | number,
+      epoch: number,
+      openInNewWindow = false,
+    ) => {
+      // Convert absolute logFile path to relative path
+      const relativePath = directoryRelativeUrl(logFile, logDirectory);
+      const url = samplesSampleUrl(relativePath, sampleId, epoch);
+
+      if (openInNewWindow) {
+        // Open in new window/tab
+        window.open(`#${url}`, "_blank");
+      } else {
+        navigate(url);
+      }
+    },
+    [navigate, logDirectory],
+  );
+
+  return {
+    navigateToSampleDetail,
   };
 };
