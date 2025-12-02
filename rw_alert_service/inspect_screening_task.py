@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -203,7 +203,7 @@ Focus on extracting the decision logic and categorization criteria.
         scorer=save_metaschema(output_dir=output_dir),
         config=GenerateConfig(
             response_schema=ResponseSchema(
-                name="metaschema", json_schema=json_schema(MetaSchema)
+                name=MetaSchema.__name__, json_schema=json_schema(MetaSchema)
             ),
             temperature=0.0,
         ),
@@ -223,7 +223,7 @@ def save_metaschema(output_dir: str = "outputs/schemas"):
             metaschema = MetaSchema.model_validate_json(state.output.completion)
 
             # Save as JSON
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             json_path = output_path / f"metaschema_{timestamp}.json"
 
             with json_path.open("w", encoding="utf-8") as f:

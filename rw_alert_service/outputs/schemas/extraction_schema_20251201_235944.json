@@ -1,0 +1,621 @@
+{
+  "$defs": {
+    "ExtractedValue1": {
+      "properties": {
+        "step_0_extraction_field": {
+          "$ref": "#/$defs/ExtractionField1Literal"
+        },
+        "step_1_initial_reflection_on_extracted_value": {
+          "title": "Step 1 Initial Reflection On Extracted Value",
+          "type": "string"
+        },
+        "step_2_initial_extracted_value": {
+          "title": "Step 2 Initial Extracted Value",
+          "type": "string"
+        },
+        "step_3_peer_reviewer_1_critical_comments_on_initial_extracted_value": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Step 3 Peer Reviewer 1 Critical Comments On Initial Extracted Value",
+          "type": "array"
+        },
+        "step_4_peer_reviewer_2_critical_comments_on_initial_extracted_value": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Step 4 Peer Reviewer 2 Critical Comments On Initial Extracted Value",
+          "type": "array"
+        },
+        "step_5_peer_reviewer_3_critical_comments_on_initial_extracted_value": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Step 5 Peer Reviewer 3 Critical Comments On Initial Extracted Value",
+          "type": "array"
+        },
+        "step_6_response_to_peer_reviewers_comments": {
+          "title": "Step 6 Response To Peer Reviewers Comments",
+          "type": "string"
+        },
+        "step_7_final_extracted_value": {
+          "title": "Step 7 Final Extracted Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_0_extraction_field",
+        "step_1_initial_reflection_on_extracted_value",
+        "step_2_initial_extracted_value",
+        "step_3_peer_reviewer_1_critical_comments_on_initial_extracted_value",
+        "step_4_peer_reviewer_2_critical_comments_on_initial_extracted_value",
+        "step_5_peer_reviewer_3_critical_comments_on_initial_extracted_value",
+        "step_6_response_to_peer_reviewers_comments",
+        "step_7_final_extracted_value"
+      ],
+      "title": "ExtractedValue1",
+      "type": "object"
+    },
+    "ExtractedValue2": {
+      "properties": {
+        "step_0_extraction_field": {
+          "$ref": "#/$defs/ExtractionField2Literal"
+        },
+        "step_1_initial_reflection_on_extracted_value": {
+          "title": "Step 1 Initial Reflection On Extracted Value",
+          "type": "string"
+        },
+        "step_2_initial_extracted_value": {
+          "title": "Step 2 Initial Extracted Value",
+          "type": "string"
+        },
+        "step_3_peer_reviewer_1_critical_comments_on_initial_extracted_value": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Step 3 Peer Reviewer 1 Critical Comments On Initial Extracted Value",
+          "type": "array"
+        },
+        "step_4_peer_reviewer_2_critical_comments_on_initial_extracted_value": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Step 4 Peer Reviewer 2 Critical Comments On Initial Extracted Value",
+          "type": "array"
+        },
+        "step_5_peer_reviewer_3_critical_comments_on_initial_extracted_value": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Step 5 Peer Reviewer 3 Critical Comments On Initial Extracted Value",
+          "type": "array"
+        },
+        "step_6_response_to_peer_reviewers_comments": {
+          "title": "Step 6 Response To Peer Reviewers Comments",
+          "type": "string"
+        },
+        "step_7_final_extracted_value": {
+          "title": "Step 7 Final Extracted Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_0_extraction_field",
+        "step_1_initial_reflection_on_extracted_value",
+        "step_2_initial_extracted_value",
+        "step_3_peer_reviewer_1_critical_comments_on_initial_extracted_value",
+        "step_4_peer_reviewer_2_critical_comments_on_initial_extracted_value",
+        "step_5_peer_reviewer_3_critical_comments_on_initial_extracted_value",
+        "step_6_response_to_peer_reviewers_comments",
+        "step_7_final_extracted_value"
+      ],
+      "title": "ExtractedValue2",
+      "type": "object"
+    },
+    "ExtractedValue3": {
+      "properties": {
+        "step_0_extraction_field": {
+          "$ref": "#/$defs/ExtractionField3Literal"
+        },
+        "step_1_initial_reflection_on_extracted_value": {
+          "title": "Step 1 Initial Reflection On Extracted Value",
+          "type": "string"
+        },
+        "step_2_initial_extracted_value": {
+          "title": "Step 2 Initial Extracted Value",
+          "type": "string"
+        },
+        "step_3_peer_reviewer_1_critical_comments_on_initial_extracted_value": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Step 3 Peer Reviewer 1 Critical Comments On Initial Extracted Value",
+          "type": "array"
+        },
+        "step_4_peer_reviewer_2_critical_comments_on_initial_extracted_value": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Step 4 Peer Reviewer 2 Critical Comments On Initial Extracted Value",
+          "type": "array"
+        },
+        "step_5_peer_reviewer_3_critical_comments_on_initial_extracted_value": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Step 5 Peer Reviewer 3 Critical Comments On Initial Extracted Value",
+          "type": "array"
+        },
+        "step_6_response_to_peer_reviewers_comments": {
+          "title": "Step 6 Response To Peer Reviewers Comments",
+          "type": "string"
+        },
+        "step_7_final_extracted_value": {
+          "title": "Step 7 Final Extracted Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_0_extraction_field",
+        "step_1_initial_reflection_on_extracted_value",
+        "step_2_initial_extracted_value",
+        "step_3_peer_reviewer_1_critical_comments_on_initial_extracted_value",
+        "step_4_peer_reviewer_2_critical_comments_on_initial_extracted_value",
+        "step_5_peer_reviewer_3_critical_comments_on_initial_extracted_value",
+        "step_6_response_to_peer_reviewers_comments",
+        "step_7_final_extracted_value"
+      ],
+      "title": "ExtractedValue3",
+      "type": "object"
+    },
+    "ExtractedValue4": {
+      "properties": {
+        "step_0_extraction_field": {
+          "$ref": "#/$defs/ExtractionField4Literal"
+        },
+        "step_1_initial_reflection_on_extracted_value": {
+          "title": "Step 1 Initial Reflection On Extracted Value",
+          "type": "string"
+        },
+        "step_2_initial_extracted_value": {
+          "enum": [
+            "Asserted_research_waste",
+            "Quoted_research_waste",
+            "Food_waste",
+            "Hazardous_waste",
+            "Plastic_waste",
+            "Garbage_management",
+            "Industrial_waste",
+            "Wastewater",
+            "Medical_or_surgical_waste",
+            "Healthcare_personnel_time",
+            "Excess_requisition",
+            "Excess_use_of_animals",
+            "Pharmaceutical_waste",
+            "Muscle_wasting",
+            "Metabolic_waste",
+            "Crop_residue",
+            "Not_sure_see_previous_step"
+          ],
+          "title": "Step 2 Initial Extracted Value",
+          "type": "string"
+        },
+        "step_3_peer_reviewer_1_critical_comments_on_initial_extracted_value": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Step 3 Peer Reviewer 1 Critical Comments On Initial Extracted Value",
+          "type": "array"
+        },
+        "step_4_peer_reviewer_2_critical_comments_on_initial_extracted_value": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Step 4 Peer Reviewer 2 Critical Comments On Initial Extracted Value",
+          "type": "array"
+        },
+        "step_5_peer_reviewer_3_critical_comments_on_initial_extracted_value": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Step 5 Peer Reviewer 3 Critical Comments On Initial Extracted Value",
+          "type": "array"
+        },
+        "step_6_response_to_peer_reviewers_comments": {
+          "title": "Step 6 Response To Peer Reviewers Comments",
+          "type": "string"
+        },
+        "step_7_final_extracted_value": {
+          "enum": [
+            "Asserted_research_waste",
+            "Quoted_research_waste",
+            "Food_waste",
+            "Hazardous_waste",
+            "Plastic_waste",
+            "Garbage_management",
+            "Industrial_waste",
+            "Wastewater",
+            "Medical_or_surgical_waste",
+            "Healthcare_personnel_time",
+            "Excess_requisition",
+            "Excess_use_of_animals",
+            "Pharmaceutical_waste",
+            "Muscle_wasting",
+            "Metabolic_waste",
+            "Crop_residue",
+            "Not_sure_see_previous_step"
+          ],
+          "title": "Step 7 Final Extracted Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_0_extraction_field",
+        "step_1_initial_reflection_on_extracted_value",
+        "step_2_initial_extracted_value",
+        "step_3_peer_reviewer_1_critical_comments_on_initial_extracted_value",
+        "step_4_peer_reviewer_2_critical_comments_on_initial_extracted_value",
+        "step_5_peer_reviewer_3_critical_comments_on_initial_extracted_value",
+        "step_6_response_to_peer_reviewers_comments",
+        "step_7_final_extracted_value"
+      ],
+      "title": "ExtractedValue4",
+      "type": "object"
+    },
+    "ExtractedValues": {
+      "properties": {
+        "field_1": {
+          "$ref": "#/$defs/ExtractedValue1"
+        },
+        "field_2": {
+          "$ref": "#/$defs/ExtractedValue2"
+        },
+        "field_3": {
+          "$ref": "#/$defs/ExtractedValue3"
+        },
+        "field_4": {
+          "$ref": "#/$defs/ExtractedValue4"
+        }
+      },
+      "required": [
+        "field_1",
+        "field_2",
+        "field_3",
+        "field_4"
+      ],
+      "title": "ExtractedValues",
+      "type": "object"
+    },
+    "ExtractionField1Literal": {
+      "properties": {
+        "name": {
+          "const": "Waste Type Discussed",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "const": "What kind of waste is discussed in this article?",
+          "title": "Description",
+          "type": "string"
+        },
+        "field_type": {
+          "const": "text",
+          "title": "Field Type",
+          "type": "string"
+        },
+        "required": {
+          "const": "True",
+          "title": "Required",
+          "type": "string"
+        },
+        "question_number": {
+          "const": "1",
+          "title": "Question Number",
+          "type": "string"
+        },
+        "question_type": {
+          "const": "screening",
+          "title": "Question Type",
+          "type": "string"
+        },
+        "guidance_notes": {
+          "const": "Read the title and abstract carefully. Identify and describe the type of waste being discussed. Look for key terms and context clues that indicate the nature of the waste.",
+          "title": "Guidance Notes",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "field_type",
+        "required",
+        "question_number",
+        "question_type",
+        "guidance_notes"
+      ],
+      "title": "ExtractionField1Literal",
+      "type": "object"
+    },
+    "ExtractionField2Literal": {
+      "properties": {
+        "name": {
+          "const": "Waste Origin",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "const": "Where does this kind of waste typically come from?",
+          "title": "Description",
+          "type": "string"
+        },
+        "field_type": {
+          "const": "text",
+          "title": "Field Type",
+          "type": "string"
+        },
+        "required": {
+          "const": "True",
+          "title": "Required",
+          "type": "string"
+        },
+        "question_number": {
+          "const": "2",
+          "title": "Question Number",
+          "type": "string"
+        },
+        "question_type": {
+          "const": "screening",
+          "title": "Question Type",
+          "type": "string"
+        },
+        "guidance_notes": {
+          "const": "Based on your general knowledge and the article context, identify where this kind of waste primarily originates in the real world:\n- Research settings (clinical trials, laboratories, systematic reviews, grant processes, publications)\n- Healthcare delivery (hospitals, clinics, surgical suites)\n- Industrial/commercial settings (factories, food production)\n- Agricultural settings (farms, crop production)\n- Biological/physiological processes",
+          "title": "Guidance Notes",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "field_type",
+        "required",
+        "question_number",
+        "question_type",
+        "guidance_notes"
+      ],
+      "title": "ExtractionField2Literal",
+      "type": "object"
+    },
+    "ExtractionField3Literal": {
+      "properties": {
+        "name": {
+          "const": "Research Process Waste Discussion",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "const": "Does this article discuss waste in the research process itself?",
+          "title": "Description",
+          "type": "string"
+        },
+        "field_type": {
+          "const": "text",
+          "title": "Field Type",
+          "type": "string"
+        },
+        "required": {
+          "const": "True",
+          "title": "Required",
+          "type": "string"
+        },
+        "question_number": {
+          "const": "3",
+          "title": "Question Number",
+          "type": "string"
+        },
+        "question_type": {
+          "const": "screening",
+          "title": "Question Type",
+          "type": "string"
+        },
+        "guidance_notes": {
+          "const": "Reflect on whether the article addresses inefficiencies or problems in how research is conducted, reported, or used. Aspects of Research Waste (MINUS framework, Rosengaard et al, 2024; expanded): Methodological, Invisible, Negligible, Underreported, Structural, Emerging, Summative. Ask yourself: Is this about improving research quality and efficiency or about managing physical materials and operations?",
+          "title": "Guidance Notes",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "field_type",
+        "required",
+        "question_number",
+        "question_type",
+        "guidance_notes"
+      ],
+      "title": "ExtractionField3Literal",
+      "type": "object"
+    },
+    "ExtractionField4Literal": {
+      "properties": {
+        "name": {
+          "const": "Waste Category",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "const": "What waste category best describes this article?",
+          "title": "Description",
+          "type": "string"
+        },
+        "field_type": {
+          "const": "categorical",
+          "title": "Field Type",
+          "type": "string"
+        },
+        "required": {
+          "const": "True",
+          "title": "Required",
+          "type": "string"
+        },
+        "question_number": {
+          "const": "4",
+          "title": "Question Number",
+          "type": "string"
+        },
+        "question_type": {
+          "const": "flagging",
+          "title": "Question Type",
+          "type": "string"
+        },
+        "allowed_values": {
+          "enum": [
+            "Asserted_research_waste",
+            "Quoted_research_waste",
+            "Food_waste",
+            "Hazardous_waste",
+            "Plastic_waste",
+            "Garbage_management",
+            "Industrial_waste",
+            "Wastewater",
+            "Medical_or_surgical_waste",
+            "Healthcare_personnel_time",
+            "Excess_requisition",
+            "Excess_use_of_animals",
+            "Pharmaceutical_waste",
+            "Muscle_wasting",
+            "Metabolic_waste",
+            "Crop_residue",
+            "Not_sure_see_previous_step"
+          ],
+          "title": "Allowed Values",
+          "type": "string"
+        },
+        "guidance_notes": {
+          "const": "Select the single best category that describes the waste discussed in the article. Refer to the definitions for guidance on each category.",
+          "title": "Guidance Notes",
+          "type": "string"
+        },
+        "conditional_logic": {
+          "const": "Selection of 'Asserted_research_waste', 'Quoted_research_waste', or 'Not_sure_see_previous_step' will result in INCLUSION for Level 2 screening. Selection of any other category will result in EXCLUSION.",
+          "title": "Conditional Logic",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "field_type",
+        "required",
+        "question_number",
+        "question_type",
+        "allowed_values",
+        "guidance_notes",
+        "conditional_logic"
+      ],
+      "title": "ExtractionField4Literal",
+      "type": "object"
+    },
+    "FlatDictLiteral": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Item"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "FlatDictLiteral",
+      "type": "object"
+    },
+    "Item": {
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "title": "Item",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "document_type": {
+      "const": "Screening Cheatsheet",
+      "title": "Document Type",
+      "type": "string"
+    },
+    "purpose": {
+      "const": "To conduct a scoping review to identify articles discussing research waste in health and biomedical sciences, distinguishing them from other types of waste (e.g., medical waste, food waste, industrial waste).",
+      "title": "Purpose",
+      "type": "string"
+    },
+    "review_objective": {
+      "const": "The goal is to conduct a scoping review to identify articles discussing research waste in health and biomedical sciences, distinguishing them from other types of waste (e.g., medical waste, food waste, industrial waste).",
+      "title": "Review Objective",
+      "type": "string"
+    },
+    "review_questions": {
+      "const": "What constitutes research waste in health and biomedical sciences, and how can it be distinguished from other forms of waste in the literature?",
+      "title": "Review Questions",
+      "type": "string"
+    },
+    "project_details": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FlatDictLiteral"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "global_instructions": {
+      "enum": [
+        "If you select Asserted_research_waste or Quoted_research_waste, the study will be INCLUDED for Level 2 screening.",
+        "If you select any other waste category, the study will be EXCLUDED.",
+        "If you select Not_sure_see_previous_step, the study will be INCLUDED for Level 2 screening.",
+        "The screening system includes a simulated peer 'pree' review process that helps validate categorization decisions, but this does not require manual input from screeners."
+      ],
+      "title": "Global Instructions",
+      "type": "string"
+    },
+    "definitions": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FlatDictLiteral"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "values": {
+      "$ref": "#/$defs/ExtractedValues"
+    }
+  },
+  "required": [
+    "document_type",
+    "purpose",
+    "review_objective",
+    "review_questions",
+    "project_details",
+    "global_instructions",
+    "definitions",
+    "values"
+  ],
+  "title": "ExtractionSchema",
+  "type": "object"
+}

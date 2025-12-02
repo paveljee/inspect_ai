@@ -104,6 +104,7 @@ from inspect_ai.tool import (
     ToolParam,
     ToolParams,
 )
+from inspect_ai.util._json import json_schema_to_base_model
 
 from .util import model_base_url
 from .util.hooks import HttpHooks, HttpxHooks
@@ -318,9 +319,15 @@ class GoogleGenAIAPI(ModelAPI):
             )
             if config.response_schema is not None:
                 parameters.response_mime_type = "application/json"
-                parameters.response_schema = schema_from_param(
-                    config.response_schema.json_schema, nullable=None
+                # parameters.response_schema = schema_from_param(
+                #     config.response_schema.json_schema, nullable=None
+                # )
+                # Nov 05, 2025: https://blog.google/technology/developers/gemini-api-structured-outputs/
+                dynamic_model = json_schema_to_base_model(
+                    config.response_schema.json_schema,
+                    model_name=config.response_schema.name,
                 )
+                parameters.response_schema = dynamic_model.model_json_schema()
 
             response: GenerateContentResponse | None = None
 

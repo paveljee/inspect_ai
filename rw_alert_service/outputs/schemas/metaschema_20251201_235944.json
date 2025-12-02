@@ -1,0 +1,162 @@
+{
+  "document_type": "Screening Cheatsheet",
+  "purpose": "To conduct a scoping review to identify articles discussing research waste in health and biomedical sciences, distinguishing them from other types of waste (e.g., medical waste, food waste, industrial waste).",
+  "fields": [
+    {
+      "name": "Waste Type Discussed",
+      "description": "What kind of waste is discussed in this article?",
+      "field_type": "text",
+      "required": true,
+      "question_number": 1,
+      "question_type": "screening",
+      "allowed_values": null,
+      "guidance_notes": "Read the title and abstract carefully. Identify and describe the type of waste being discussed. Look for key terms and context clues that indicate the nature of the waste.",
+      "conditional_logic": null
+    },
+    {
+      "name": "Waste Origin",
+      "description": "Where does this kind of waste typically come from?",
+      "field_type": "text",
+      "required": true,
+      "question_number": 2,
+      "question_type": "screening",
+      "allowed_values": null,
+      "guidance_notes": "Based on your general knowledge and the article context, identify where this kind of waste primarily originates in the real world:\n- Research settings (clinical trials, laboratories, systematic reviews, grant processes, publications)\n- Healthcare delivery (hospitals, clinics, surgical suites)\n- Industrial/commercial settings (factories, food production)\n- Agricultural settings (farms, crop production)\n- Biological/physiological processes",
+      "conditional_logic": null
+    },
+    {
+      "name": "Research Process Waste Discussion",
+      "description": "Does this article discuss waste in the research process itself?",
+      "field_type": "text",
+      "required": true,
+      "question_number": 3,
+      "question_type": "screening",
+      "allowed_values": null,
+      "guidance_notes": "Reflect on whether the article addresses inefficiencies or problems in how research is conducted, reported, or used. Aspects of Research Waste (MINUS framework, Rosengaard et al, 2024; expanded): Methodological, Invisible, Negligible, Underreported, Structural, Emerging, Summative. Ask yourself: Is this about improving research quality and efficiency or about managing physical materials and operations?",
+      "conditional_logic": null
+    },
+    {
+      "name": "Waste Category",
+      "description": "What waste category best describes this article?",
+      "field_type": "categorical",
+      "required": true,
+      "question_number": 4,
+      "question_type": "flagging",
+      "allowed_values": [
+        "Asserted_research_waste",
+        "Quoted_research_waste",
+        "Food_waste",
+        "Hazardous_waste",
+        "Plastic_waste",
+        "Garbage_management",
+        "Industrial_waste",
+        "Wastewater",
+        "Medical_or_surgical_waste",
+        "Healthcare_personnel_time",
+        "Excess_requisition",
+        "Excess_use_of_animals",
+        "Pharmaceutical_waste",
+        "Muscle_wasting",
+        "Metabolic_waste",
+        "Crop_residue",
+        "Not_sure_see_previous_step"
+      ],
+      "guidance_notes": "Select the single best category that describes the waste discussed in the article. Refer to the definitions for guidance on each category.",
+      "conditional_logic": "Selection of 'Asserted_research_waste', 'Quoted_research_waste', or 'Not_sure_see_previous_step' will result in INCLUSION for Level 2 screening. Selection of any other category will result in EXCLUSION."
+    }
+  ],
+  "review_objective": "The goal is to conduct a scoping review to identify articles discussing research waste in health and biomedical sciences, distinguishing them from other types of waste (e.g., medical waste, food waste, industrial waste).",
+  "review_questions": [
+    "What constitutes research waste in health and biomedical sciences, and how can it be distinguished from other forms of waste in the literature?"
+  ],
+  "project_details": {
+    "items": [
+      {
+        "key": "Project Name",
+        "value": "RW Alert Service – L1"
+      },
+      {
+        "key": "GitHub Link",
+        "value": "https://github.com/pvzhelnov/rw_alert_service"
+      }
+    ]
+  },
+  "global_instructions": [
+    "If you select Asserted_research_waste or Quoted_research_waste, the study will be INCLUDED for Level 2 screening.",
+    "If you select any other waste category, the study will be EXCLUDED.",
+    "If you select Not_sure_see_previous_step, the study will be INCLUDED for Level 2 screening.",
+    "The screening system includes a simulated peer 'pree' review process that helps validate categorization decisions, but this does not require manual input from screeners."
+  ],
+  "definitions": {
+    "items": [
+      {
+        "key": "Asserted_research_waste",
+        "value": "Authors explicitly say it's about research waste (terms like 'research waste,' 'avoidable waste in research,' 'reducing waste in research')."
+      },
+      {
+        "key": "Quoted_research_waste",
+        "value": "Article covers research waste concepts (redundant trials, poor methods, publication bias, selective reporting) but does not use the phrase 'research waste.'"
+      },
+      {
+        "key": "Food_waste",
+        "value": "Article is about food waste in any setting."
+      },
+      {
+        "key": "Hazardous_waste",
+        "value": "Article is about dangerous materials (chemicals, toxins, radioactive substances) needing special disposal."
+      },
+      {
+        "key": "Plastic_waste",
+        "value": "Article is about plastic waste or pollution."
+      },
+      {
+        "key": "Garbage_management",
+        "value": "Article is about waste collection, disposal, or management systems."
+      },
+      {
+        "key": "Industrial_waste",
+        "value": "Article is about waste from manufacturing or industrial processes."
+      },
+      {
+        "key": "Wastewater",
+        "value": "Article is about contaminated water or water treatment."
+      },
+      {
+        "key": "Medical_or_surgical_waste",
+        "value": "Article is about physical clinical waste (sharps, contaminated materials, surgical waste), not research waste."
+      },
+      {
+        "key": "Healthcare_personnel_time",
+        "value": "Article is about inefficient clinician time use in healthcare delivery."
+      },
+      {
+        "key": "Excess_requisition",
+        "value": "Article is about over-ordering or unnecessary supply procurement in clinical/operational settings."
+      },
+      {
+        "key": "Excess_use_of_animals",
+        "value": "Article is about unnecessary animal use in research or animal welfare issues."
+      },
+      {
+        "key": "Pharmaceutical_waste",
+        "value": "Article is about unused, expired, or improperly disposed medications."
+      },
+      {
+        "key": "Muscle_wasting",
+        "value": "Article is about medical muscle loss (cachexia, sarcopenia, atrophy)."
+      },
+      {
+        "key": "Metabolic_waste",
+        "value": "Article is about biological byproducts of metabolism (urea, CO2, etc.)."
+      },
+      {
+        "key": "Crop_residue",
+        "value": "Article is about agricultural waste from plants."
+      },
+      {
+        "key": "Not_sure_see_previous_step",
+        "value": "Category unclear; rely on reflection from Question 3."
+      }
+    ]
+  }
+}
