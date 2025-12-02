@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import anyio
 from cheatsheet_parser_agent import CheatsheetParser
 from inspect_screening_task import (
+    OUTPUT_DIR,
+    dump_latest_extraction_schema_pydantic,
     extract_cheatsheet_schema,
+    find_latest_metaschema,
+    read_latest_metaschema,
     screen_articles,
 )
 from llama_cpp_experiments.llama_server import LlamaServer
@@ -28,8 +31,6 @@ from inspect_ai.util._json import json_schema_to_base_model
 MetaSchema = CheatsheetParser.MetaSchema
 SERVER_CONFIG_PATH = Path("llama_cpp_experiments") / "server_config_20251116.yaml"
 LOG_DIR = Path.cwd().parent / "logs"
-OUTPUT_DIR = Path.cwd().parent / "outputs"
-SCHEMAS_DIR = OUTPUT_DIR / "schemas"
 SCREENING_OUTPUTS_DIR = OUTPUT_DIR / "screening"
 
 
@@ -97,41 +98,6 @@ def test_extract_schema():
         pass
 
 
-def find_latest_metaschema(dir_path: Path | str = SCHEMAS_DIR) -> Path:
-    """Non-recursive search for `metaschema_*.json` within `dir_path`."""
-    dir_path = Path(dir_path)
-    if not dir_path.is_dir():
-        raise ValueError(f"{dir_path} is not a valid directory")
-
-    # Regex to extract timestamp from filename
-    pattern = re.compile(r"metaschema_(\d{8}_\d{6})\.json")
-
-    metaschema_files = []
-    for f in dir_path.glob("metaschema_*.json"):
-        match = pattern.match(f.name)
-        if match:
-            timestamp = match.group(1)
-            metaschema_files.append((timestamp, f))
-
-    if not metaschema_files:
-        raise FileNotFoundError("No metaschema JSON files found in directory")
-
-    # Pick the file with the latest timestamp
-    latest_file: Path = max(metaschema_files, key=lambda x: x[0])[1]
-
-    return latest_file
-
-
-def read_latest_metaschema(
-    dir_path: Path | str = SCHEMAS_DIR, pydantic_model_name: str = MetaSchema.__name__
-) -> MetaSchema:
-    """Returns a validated `MetaSchema` instance."""
-    latest_file = find_latest_metaschema(dir_path)
-    with open(latest_file, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return MetaSchema.model_validate(data)
-
-
 def test_read_latest_metaschema():
     metaschema_instance = read_latest_metaschema()
     extraction_schema = metaschema_instance.build_extraction_schema()
@@ -155,13 +121,22 @@ def test_llama_response_format():
     print(json.dumps(params, indent=2))
 
 
+def test_dump_extraction_schema_pydantic():
+    pydantic_class_dump_path = dump_latest_extraction_schema_pydantic()
+    assert pydantic_class_dump_path.exists()
+    print(f"Extraction schema class dumped to '{pydantic_class_dump_path}' for use.")
+
+
 async def test_screen():
     try:
         server = LlamaServer(SERVER_CONFIG_PATH)
         await server.start()
         await run_eval_async(
             screen_articles(
-                pmids=[10618008, 21592376],  # some arbitrary PMIDs
+                pmids=[
+                    # 10618008,
+                    21592376,
+                ],  # some arbitrary PMIDs
                 metaschema_json=find_latest_metaschema(),
                 output_dir=SCREENING_OUTPUTS_DIR,
             ),

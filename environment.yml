@@ -5,3 +5,4 @@ dependencies:
   - python=3.13
   - uv
   - llama-cpp-python
+  - datamodel-code-generator

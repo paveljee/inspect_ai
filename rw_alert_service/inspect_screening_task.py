@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import datamodel_code_generator
 import rispy
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, ValidationError
@@ -55,6 +57,9 @@ CHEATSHEET_SYSTEM_INSTRUCTION = (
     "You extract accurately data from a systematic review screening cheatsheet."
 )
 
+OUTPUT_DIR = Path.cwd() / "outputs"
+SCHEMAS_DIR = OUTPUT_DIR / "schemas"
+
 # ============================================================================
 # Schema Models
 # ============================================================================
@@ -62,6 +67,75 @@ CHEATSHEET_SYSTEM_INSTRUCTION = (
 from cheatsheet_parser_agent import CheatsheetParser
 
 MetaSchema = CheatsheetParser.MetaSchema
+
+
+def find_latest_metaschema(dir_path: Path | str = SCHEMAS_DIR) -> Path:
+    """Non-recursive search for `metaschema_*.json` within `dir_path`."""
+    dir_path = Path(dir_path)
+    if not dir_path.is_dir():
+        raise ValueError(f"{dir_path} is not a valid directory")
+
+    # Regex to extract timestamp from filename
+    pattern = re.compile(r"metaschema_(\d{8}_\d{6})\.json")
+
+    metaschema_files = []
+    for f in dir_path.glob("metaschema_*.json"):
+        match = pattern.match(f.name)
+        if match:
+            timestamp = match.group(1)
+            metaschema_files.append((timestamp, f))
+
+    if not metaschema_files:
+        raise FileNotFoundError("No metaschema JSON files found in directory")
+
+    # Pick the file with the latest timestamp
+    latest_file: Path = max(metaschema_files, key=lambda x: x[0])[1]
+
+    return latest_file
+
+
+def read_latest_metaschema(
+    dir_path: Path | str = SCHEMAS_DIR, pydantic_model_name: str = MetaSchema.__name__
+) -> MetaSchema:
+    """Returns a validated `MetaSchema` instance."""
+    latest_file = find_latest_metaschema(dir_path)
+    with open(latest_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return MetaSchema.model_validate(data)
+
+
+def build_extraction_schema_pydantic_path(metaschema_file: Path) -> Path:
+    """Constructs expected path to extraction schema's Pydantic; does not check if it exists."""
+    return metaschema_file.with_name(
+        metaschema_file.stem.replace("metaschema_", "extraction_schema_") + ".py"
+    )
+
+
+def construct_latest_extraction_schema_pydantic_path(
+    dir_path: Path | str = SCHEMAS_DIR,
+) -> Path:
+    """Finds latest `MetaSchema` and constructs Pydantic path; does not check if it exists."""
+    latest_metaschema_file = find_latest_metaschema(dir_path)
+    return build_extraction_schema_pydantic_path(latest_metaschema_file)
+
+
+def dump_latest_extraction_schema_pydantic(dir_path: Path | str = SCHEMAS_DIR) -> Path:
+    """Generates Pydantic class code for latest `MetaSchema`'s extraction schema and returns Path to it."""
+    latest_metaschema_file = find_latest_metaschema(dir_path)
+    with open(latest_metaschema_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    metaschema_instance = MetaSchema.model_validate(data)
+    extraction_schema = metaschema_instance.build_extraction_schema()
+    pydantic_class_dump_path = build_extraction_schema_pydantic_path(
+        latest_metaschema_file
+    )
+    datamodel_code_generator.generate(
+        input_=json.dumps(extraction_schema.model_json_schema()),
+        input_file_type=datamodel_code_generator.InputFileType.JsonSchema,
+        output_model_type=datamodel_code_generator.DataModelType.PydanticV2BaseModel,
+        output=pydantic_class_dump_path,
+    )
+    return pydantic_class_dump_path
 
 
 # ============================================================================
@@ -293,6 +367,7 @@ def screen_articles(
 
     # Create samples for each article
     samples = []
+    pydantic_code = open(construct_latest_extraction_schema_pydantic_path()).read()
     for article in articles:
         prompt = f"""
 Screen this article according to the systematic review criteria.
@@ -301,7 +376,11 @@ Title: {article.title}
 
 Abstract: {article.abstract}
 
-Provide your screening decision following the schema structure.
+Provide your screening decision following the schema structure:
+
+```python
+{pydantic_code}
+```
 """
         samples.append(
             Sample(
@@ -330,6 +409,7 @@ Provide your screening decision following the schema structure.
                 json_schema=json_schema(extraction_schema),
             ),
             temperature=0.0,
+            max_tokens=8192,
         ),
     )
 
