@@ -1,6 +1,7 @@
 import inspect
 import json
 import types
+import typing
 from copy import copy, deepcopy
 from dataclasses import is_dataclass
 from datetime import date, datetime, time
@@ -13,6 +14,7 @@ from typing import (
     Callable,
     Dict,
     List,
+    Literal,
     NamedTuple,
     Optional,
     Sequence,
@@ -40,6 +42,7 @@ from inspect_ai._util.content import (
     ContentText,
     ContentVideo,
 )
+from inspect_ai._util.dateutil import datetime_from_iso_format_safe
 from inspect_ai._util.exception import TerminateSampleError
 from inspect_ai._util.format import format_function_call
 from inspect_ai._util.logger import warn_once
@@ -305,8 +308,7 @@ async def execute_tools(
                 )
                 result_messages.append(tool_message)
             elif result is not None:
-                for message in result.messages:
-                    result_messages.append(message)
+                result_messages.extend(result.messages)
                 if result.output is not None:
                     result_output = result.output
 
@@ -657,7 +659,9 @@ def tool_param(type_hint: Type[Any], input: Any) -> Any:
     args = get_args(type_hint)
 
     if origin is None:
-        if type_hint in [int, str, float, bool]:
+        if type_hint == typing.Any:
+            return input
+        elif type_hint in [int, str, float, bool]:
             try:
                 return type_hint(input)
             except (ValueError, TypeError):
@@ -668,7 +672,7 @@ def tool_param(type_hint: Type[Any], input: Any) -> Any:
             if input.endswith("Z"):
                 # convert trailing Z to +00:00
                 input = input[:-1] + "+00:00"
-            return datetime.fromisoformat(input)
+            return datetime_from_iso_format_safe(input)
         elif type_hint == date:
             return date.fromisoformat(input)
         elif type_hint == time:
@@ -775,12 +779,16 @@ def truncate_tool_output(
         return None
 
 
-def tool_parse_error_message(arguments: str, ex: Exception) -> str:
-    return f"Error parsing the following tool call arguments:\n\n{arguments}\n\nError details: {ex}"
+def tool_parse_error_message(arguments: str | None, ex: Exception) -> str:
+    return f"Error parsing the following tool call arguments:\n\n{arguments or ''}\n\nError details: {ex}"
 
 
 def parse_tool_call(
-    id: str, function: str, arguments: str, tools: list[ToolInfo] | None = None
+    id: str,
+    function: str,
+    arguments: str | None,
+    tools: list[ToolInfo] | None = None,
+    type: Literal["function", "custom"] = "function",
 ) -> ToolCall:
     """Parse a tool call from a JSON payload.
 
@@ -798,7 +806,7 @@ def parse_tool_call(
         logger.info(error)
 
     # if the arguments is a dict, then handle it with a plain json.loads
-    arguments = arguments.strip()
+    arguments = (arguments or "").strip()
     if arguments.startswith("{"):
         try:
             arguments_dict = json.loads(arguments)
@@ -827,10 +835,7 @@ def parse_tool_call(
 
     # return ToolCall with error payload
     return ToolCall(
-        id=id,
-        function=function,
-        arguments=arguments_dict,
-        parse_error=error,
+        id=id, function=function, arguments=arguments_dict, parse_error=error, type=type
     )
 
 

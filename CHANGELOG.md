@@ -1,16 +1,201 @@
 ## Unreleased
 
+- [Code execution](https://inspect.aisi.org.uk/tools-standard.html#sec-code-execution) tool for executing Python code in a stateless sandbox running on model provider servers. 
+- Anthropic: Include native `web_fetch` tool as part of `web_search()` implementation (matching capability of other providers that have native web search).
+- VLLM and SGLang: Default to 5 second retry policy when server rejects requests due to saturated GPU (customize with model arg `retry_delay`).
+- Inspect View: Fix regression where the display of samples with errors would result in unusuably wide sample list view.
+
+## 0.3.151 (30 November 2025)
+
+- Memory tool: Added [memory()](https://inspect.aisi.org.uk/tools-standard.html#sec-memory) tool and bound it to native definitions for providers that support it (currently only Anthropic).
+- Grok: Correctly reconstruct assistant tool calls when replaying messages to API.
+- Grok: Round trip encrypted reasoning (made available in v1.4.0 of `xai_sdk`, which is now required).
+- Anthropic: Protect against signature not being replayed (can occur for agent bridge) by saving a side list of signatures.
+- Sandboxes: For "local" and "docker" sandbox providers, treat `output_limit` as a cap enforced with a circular buffer (rather than a limit that results in killing the process and raising).
+- Sandboxes: Added `evals_in_eval` example for running Inspect evaluations inside other evaluations.
+- Model API: Enable model providers to have custom retry wait strategies (use 5 second fixed wait for vllm).
+- Prevent querying of local timezone and forbid naïve `datetime`'s via DTZ lint rule. 
+- Dependencies: Change jsonpath-ng requirement to >=1.6.0 (formerly required >= 1.7.0).
+- Dependencies: Move from unmaintained `nest_asyncio`, which is fundamentally incompatible with Python 3.14, to `nest_asyncio2`, which has explicit 3.14 compatibility.
+- Inspect View: Improve markdown rendering performance.
+- Inspect View: Reduce use of virtualized display for smaller transcripts and message lists.
+- Inspect View: Add support for copying sample messages (as text).
+- Inspect View: Improved JSON parsing performance & scalability.
+- Bugfix: Correct normalization of sample id for `read_eval_log()` with JSON log files.
+- Bugfix: Correctly handle more complex list operations when detecting changes in state and store.
+
+## 0.3.150 (25 November 2025)
+
+- Anthropic: Enable [interleaved-thinking](https://platform.claude.com/docs/en/build-with-claude/extended-thinking#interleaved-thinking) by default for Claude 4 models.
+- Anthropic: Smarter `max_tokens` handling to prevent exceeding model max tokens when reasoning tokens are specified. 
+- OpenAI: Limit reasoning summary capability probe to 1 request.
+- Google: Attach thought signature to first function call, even if a message also has text.
+- Grok: Correctly handle web_search tool intermixed with other tool types.
+- OpenRouter: Pass reasoning_effort = "none" through to models rather enabled=False.
+- Model API: Conversion functions for translating raw model input and output into Inspect types.
+- Hooks: Ensure that on_sample_start and on_sample_end are called on the same coroutine.
+- Registry: Add `RegistryInfo` and `registry_info()` to the public API. 
+- Bugfix: Ensure that `prompt_cache_retention` is correctly forwarded by agent bridge to responses API.
+
+## 0.3.149 (23 November 2025)
+
+- Inspect View: Truncate display of large sample summary fields to improve performance.
+- Inspect View: Fix regression in displaying S3 log files in VS Code.
+- Bugfix: Truncate large target fields in sample summaries.
+
+## 0.3.148 (21 November 2025)
+
+- Bugfix: Fix Google provider serialization of thought signatures on replay.
+
+## 0.3.147 (21 November 2025)
+
+- Google: Support for `--reasoning-effort` on Gemini 3.0 models.
+- Anthropic: Support for [Structured Output](https://inspect.aisi.org.uk/structured.html) for Sonnet 4.5 and Opus 4.1.
+- Anthropic: Don't insert "(no content)" when replaying empty assistant messages with tool calls.
+- OpenAI: Don't remove consecutive reasoning blocks (earlier versions of the API would give 400 errors, this no longer occurs).
+- OpenAI: Add `prompt_cache_retention` custom model arg (bump required version of `openai` package to v2.8.0).
+- Eval Set: Task identifiers can now vary on `model_args` (which enables sweeping over these variables).
+- Eval Logs: Compatibility with Hugging Face filesystem (hf://).
+- Eval Logs: Don't forward credentials when using aioboto3 with S3 (was preventing use of AWS credential chain).
+- Inspect View: Streaming for log bytes requests in fastapi view server.
+- Bugfix: Fix incorrect approver behavior with multiple tool calls
+- Bugfix: Correctly handle distinguishing eval set tasks based on `solver` passed to `eval_set()`.
+
+## 0.3.146 (15 November 2025)
+
+- Added `cache` configuration to `GenerateConfig` (formerly was only available as a parameter to `generate()`).
+- ReAct agent: `on_continue` can now return a new `AgentState`.
+- OpenAI: Retries for `APIConnectionError`.
+- OpenAI: Support for `reasoning_effort="none"` (now available with gpt-5.1).
+- Grok: Retries for 520 (UNKNOWN) errors.
+- Bugfix: Properly load scorer metrics when using solver scoring.
+- Bugfix: Properly handle `None` as value of `arguments` when parsing tool calls.
+- Bugfix: Fix sandbox tools install for sandbox envs with non-root default user.
+- Bugfix: Fix model name preservation in eval logs for service-prefixed models.
+
+## 0.3.145 (09 November 2025)
+
+- OpenAI: Show reasoning summaries by default (auto-detect whether current account is capable of reasoning summaries and fallback as required).
+- OpenAI: Support for `logprobs` and `top_logprobs` in Responses API (note that logprobs are not supported for reasoning models).
+- Grok: Updated provider implementation using `xai_sdk` package (rather than using OpenAI compatible endpoint).
+- Grok: Support for server-side `web_search()` tool.
+- Grok: Support for generating structured outputs (outputs constrained by JSON Schema).
+- OpenRouter: Add `reasoning_enabled` model arg to optionally disable reasoning for hybrid models.
+- Eval Set: Enable optional explicit specification of `eval_set_id` 
+- Bugfix: Properly handle `content` of type `str` in Responses API agent bridge.
+
+## 0.3.144 (05 November 2025)
+
+- Eval Set: Task identifiers can now vary on `GenerateConfig` and `solver` (which enables sweeping over these variables).
+- Eval Logs: Don't resolve attachments within `ModelEvent.call` by default, which prevents O(N) memory footprint for reading transcripts.
+- OpenAI: Update for typing change to `ResponseOutputText` in v2.7.0 of `openai` package.
+- Grok: Correct handling of `reasoning_effort` parameter (only supported by `grok-3-mini` and only `low` and `high`values are supported).
+- Inspect View: Fixed theming issue with the score selector control in VS Code.
+- Inspect View: Improve display of grouped metrics
+- Inspect View: Don't render markdown images in the sample list input, target, or answer.
+- Inspect View: Add Copy UUID button to sample toolbar.
+- Inspect View: Add new samples view which displays a grid of all samples within a given folder of tasks (recursively).
+- Inspect View: Invalidate client side caches for updates to statically deployed versions of the viewer.
+- Inspect View: Fix flash of error that can occur when viewing folders with no eval-set info in statically deployed versions of the viewer.
+
+## 0.3.143 (29 October 2025)
+
+- Google: Correct capture and playback of `thought_signature` in `ContentReasoning` blocks.
+- Anthropic: Set 4k as default max_token limit for Claude 3.5 (same as Claude 3.0).
+- Scoring: Support for using `@scanner` functions as scorers.
+- Bugfix: Prevent condensing of model event `output` during execution (only condense `call`).
+- Bugfix: Defer binding of default value for `logs` in data frame functions.
+
+## 0.3.142 (27 October 2025)
+
+- Google: Distribute citations from web search to individual ContentText parts (rather than concatenating into a single part).
+- Google: Support options (time interval) for Gemini Web Search.
+- Inspect View: Fix performance regression when loading a log view from an S3 bucket.
+- Inspect View: Fix flash of 'No events' message when loading sample transcripts.
+
+## 0.3.141 (27 October 2025)
+
+- OpenAI: Use `responses_store=false` by default (handling reasoning via the "reasoning.encrypted_content" include option).
+- OpenAI: Don't include "metadata" extra body parameter when `responses_store` is False.
+- Anthropic: Increase default `max_tokens` to 32,000 for Claude 4 models.
+- OpenRouter: Classify `JSONDecodeError` as a retry-able infrastructure error.
+- Remove Goodfire model provider (as the goodfire package has been archived/deprecated).
+- Eval logs: Track dirty working tree state in `EvalRevision` (includes `dirty` field indicating uncommitted changes or untracked files at eval time).
+- Inspect View: Display copy button for model events api request and response JSON.
+- Inspect View: Support selecting multiple scorers for display in the sample list.
+- Inspect View: Show multiple scores in sample view.
+- Inspect View: Fix issue where samples would jump around when viewing running evals with high concurrency.
+- Inspect View: Improve log and sample list performance by adding a persistent local cache.
+- Inspect View: Display a message when there are no events to display in a transcript.
+- Bugfix: Correctly resolve relative sandbox config paths in `eval-retry` when CWD differs from task directory.
+- Bugfix: Don't check working time limit when there is a model generation in flight.
+- Bugfix: Fix broken Pydantic @model_validator's that assumed the input was a dict.
+- Bugfix: Fix `run_coroutine` to exit internal catch handler before running the coroutine.
+
+## 0.3.140 (20 October 2025)
+
+- Tests: Skip git revision detection and realtime logging during pytest runs to improve test performance.
+- Inspect View: Fix regression that resulted in an error when displaying JSON log files.
+
+## 0.3.139 (18 October 2025)
+
+- OpenAI: Handle `Message` input types that have no `"type"` field in responses API.
+- Google: Improve model API call diagnostics to accurately reflect request body sent by the Python client.
+- Model API: Support for refreshing API keys during long-running evaluations via the `override_api_key()` hook.
+- Datasets: Use readahead content caching by default for reading CSV and JSON datasets from S3.
+- Datasets: Enable json dataset reader to support `dict` as well as `list` for underlying data.
+- Inspect View: Improve the display of grouped metrics.
+- Bugfix: Fix `edit_score()` silently editing only first epoch in multi-epoch evaluations (now requires explicit `epoch` parameter).
+- Bugfix: Fix errors that could occur when re-scoring with duplicated scorer names.
+- Bugfix: Fix regression in running samples display resulting from condensing model event messages.
+
+## 0.3.138 (16 October 2025)
+
+- Added model API for [Hugging Face Inference Providers](https://inspect.aisi.org.uk/providers.html#hugging-face-inference-providers).
+- Agent bridge: Support for OpenAI 'custom' tools (required by Codex apply_patch tool).
+- Agent bridge: New `messages_to_openai_responses()` function.
+- OpenAI: Use background processing for `gpt-5-pro` by default.
+- OpenAI: Use "developer" role for system messages for all models (formerly was only o-series and gpt5).
+- Anthropic: Support `parallel_tool_calls` option for tool choice.
+- Google: Enable support for `logprobs` and `top_logprobs`.
+- Groq: Update "model_length" stop reason detection for latest way of reporting bad requests.
+- Bedrock: Detect `model_length` stop reason based on additional error pattern.
+- Bedrock: Ensure that list of `content` can never be empty.
+- VLLM: Catch additional model_length stop reasons.
+- Scoring: New `edit_score()` and `recompute_metrics()` functions for modifying evaluation scores with provenance tracking and metric recomputation.
+- Scoring: When re-scoring an eval, use the correct sample uuid in TaskState.
+- Scoring: Periodically flush samples when scoring with streaming enabled.
+- Model API: Added `attempt_timeout` to `GenerateConfig` (governs timeout for individual attempts and still retries if timeout is exceeded).
+- Analysis: Handle string columns which exceed the pyarrow 2GB limit (convert to large_string).
+- Logging: Condense `ModelEvent` immediately to prevent O(N) memory usage for long message histories.
+- Adjust terminal progress display to accommodate longer task names.
+- Inspect View: Properly display task error when a task error is present in the log file.
+- Inspect View: Improve display of running eval sets (correct duplicate files and incorrect progress display).
+- Inspect View: Provide option to run `inspect view` server using uvicorn / fastapi.
+- Python Versions: Use explicit `Union` for `TypeAlias` (required by Python 3.14).
+- Bugfix: Fix improperly scoped use of restrictive `umask` that led to permission problems with `bash_session` tool.
+- Bugfix: Ensure that init span is always cleaned up even when sandbox init fails.
+- Bugfix: Ensure that calls to generate always sync the cache state to the current sample's epoch.
+- Bugfix: Don't use default values for `list` and `dict` parameters (rather use `None` and initialize on use).
+- Bugfix: When reading log files, tolerate `SubtaskEvent.input` values that aren't of the required `dict` type.
+
+## 0.3.137 (07 October 2025)
+
 - OpenAI: Support for tool calls returning images (requires v2.0 of `openai` package, which is now required).
+- Anthropic: Retry requests that get an error body payload with 'internal server error'
 - Agents: Improve overload return value typing for agent `run()` function.
 - Task display: Improved reporting of errors that occur during log initialization.
 - Event API: Created new `inspect_ai.event` module with event related tyeps and functions.
 - Model API: Use context var for managing background task group.
 - Model API: Add canonical model naming for consistent querying across service routing prefixes (vertex/, azure/, bedrock/).
+- Inspect View: Properly truncate sample input and and target (in sample header) even when it contains large pre-formatted text blocks.
 - Dependencies: Update to fsspec 2025.9.0 to match upper bound of HF datasets.
 - Dependencies: Allow any version of `rich` > 13.3.3 save for 14.0.0 (which had an infinite recursion bug affecting stack traces with exception groups).
 - Dependencies: Unpin textual dependency (was <= 4.0.0 is now >=2.1.0) as we have mitigated layout issue we saw in 4.0.0.
 - Bugfix: Honor `resolve_attachments` in score command when `stream=True`.
+- Bugfix: Allow cancellation errors to propagate when `fail_on_error=False`.
 - Bugfix: text_editor tool now supports relative file paths.
+- Bugfix: Fix crash when determining tool_param based on type hint of Any in Python 3.10 w/Pydantic 2.12.0.
 
 ## 0.3.136 (02 October 2025)
 

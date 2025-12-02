@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from pydantic_core import from_json
 from typing_extensions import override
 
-from inspect_ai._util.constants import DESERIALIZING_CONTEXT, LOG_SCHEMA_VERSION
+from inspect_ai._util.constants import LOG_SCHEMA_VERSION, get_deserializing_context
 from inspect_ai._util.error import EvalError
 from inspect_ai._util.file import FileSystem, absolute_file_path, file, filesystem
 from inspect_ai._util.trace import trace_action
@@ -50,7 +50,10 @@ class JSONRecorder(FileRecorder):
         data: EvalLog
 
     def __init__(
-        self, log_dir: str, suffix: str = ".json", fs_options: dict[str, Any] = {}
+        self,
+        log_dir: str,
+        suffix: str = ".json",
+        fs_options: dict[str, Any] | None = None,
     ):
         # call super
         super().__init__(log_dir, suffix, fs_options)
@@ -160,7 +163,7 @@ class JSONRecorder(FileRecorder):
                 raw_data = from_json(f.read())
             etag = None
 
-        log = EvalLog.model_validate(raw_data, context=DESERIALIZING_CONTEXT)
+        log = EvalLog.model_validate(raw_data, context=get_deserializing_context())
         log.location = location
         if etag:
             log.etag = etag
@@ -242,8 +245,6 @@ async def _s3_read_with_etag(location: str, fs: FileSystem) -> tuple[str, str]:
     async with session.client(
         "s3",
         endpoint_url=fs.fs.client_kwargs.get("endpoint_url"),
-        aws_access_key_id=fs.fs.key,
-        aws_secret_access_key=fs.fs.secret,
         region_name=fs.fs.client_kwargs.get("region_name"),
     ) as s3_client:
         response = await s3_client.get_object(Bucket=bucket, Key=key)

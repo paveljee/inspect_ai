@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 from typing_extensions import TypedDict
 
 from inspect_ai._util.constants import DEFAULT_BATCH_SIZE
+from inspect_ai.model._cache import CachePolicy
 from inspect_ai.util._json import JSONSchema
 
 
@@ -61,6 +62,9 @@ class GenerateConfigArgs(TypedDict, total=False):
     timeout: int | None
     """Request timeout (in seconds)."""
 
+    attempt_timeout: int | None
+    """Timeout (in seconds) for any given attempt (if exceeded, will abandon attempt and retry according to max_retries)."""
+
     max_connections: int | None
     """Maximum number of concurrent connections to Model API (default is model specific)."""
 
@@ -101,10 +105,10 @@ class GenerateConfigArgs(TypedDict, total=False):
     """How many chat completion choices to generate for each input message. OpenAI, Grok, Google, and TogetherAI only."""
 
     logprobs: bool | None
-    """Return log probabilities of the output tokens. OpenAI, Grok, TogetherAI, Huggingface, llama-cpp-python, and vLLM only."""
+    """Return log probabilities of the output tokens. OpenAI, Google, Grok, TogetherAI, Huggingface, llama-cpp-python, and vLLM only."""
 
     top_logprobs: int | None
-    """Number of most likely tokens (0-20) to return at each token position, each with an associated log probability. OpenAI, Grok, and Huggingface only."""
+    """Number of most likely tokens (0-20) to return at each token position, each with an associated log probability. OpenAI, Google, Grok, and Huggingface only."""
 
     parallel_tool_calls: bool | None
     """Whether to enable parallel function calling during tool use (defaults to True). OpenAI and Groq only."""
@@ -118,14 +122,14 @@ class GenerateConfigArgs(TypedDict, total=False):
     cache_prompt: Literal["auto"] | bool | None
     """Whether to cache the prompt prefix. Defaults to "auto", which will enable caching for requests with tools. Anthropic only."""
 
-    reasoning_effort: Literal["minimal", "low", "medium", "high"] | None
-    """Constrains effort on reasoning for reasoning models (defaults to `medium`). Open AI o-series and gpt-5 models only."""
+    reasoning_effort: Literal["none", "minimal", "low", "medium", "high"] | None
+    """Constrains effort on reasoning. Defaults vary by provider and model and not all models support all values (please consult provider documentation for details)."""
 
     reasoning_tokens: int | None
     """Maximum number of tokens to use for reasoning. Anthropic Claude models only."""
 
-    reasoning_summary: Literal["concise", "detailed", "auto"] | None
-    """Provide summary of reasoning steps (defaults to no summary). Use 'auto' to access the most detailed summarizer available for the current model. OpenAI reasoning models only."""
+    reasoning_summary: Literal["none", "concise", "detailed", "auto"] | None
+    """Provide summary of reasoning steps (OpenAI reasoning models only). Use 'auto' to access the most detailed summarizer available for the current model (defaults to 'auto' if your organization is verified by OpenAI)."""
 
     reasoning_history: Literal["none", "all", "last", "auto"] | None
     """Include reasoning in chat message history sent to generate."""
@@ -135,6 +139,9 @@ class GenerateConfigArgs(TypedDict, total=False):
 
     extra_body: dict[str, Any] | None
     """Extra body to be sent with requests to OpenAI compatible servers. OpenAI, vLLM, and SGLang only."""
+
+    cache: bool | CachePolicy | None
+    """Policy for caching of model generations."""
 
     batch: bool | int | BatchConfig | None
     """Use batching API when available. True to enable batching with default configuration, False to disable batching, a number to enable batching of the specified batch size, or a BatchConfig object specifying the batching configuration."""
@@ -147,7 +154,10 @@ class GenerateConfig(BaseModel):
     """Maximum number of times to retry request (defaults to unlimited)."""
 
     timeout: int | None = Field(default=None)
-    """Request timeout (in seconds)."""
+    """Timeout (in seconds) for an entire request (including retries)."""
+
+    attempt_timeout: int | None = Field(default=None)
+    """Timeout (in seconds) for any given attempt (if exceeded, will abandon attempt and retry according to max_retries)."""
 
     max_connections: int | None = Field(default=None)
     """Maximum number of concurrent connections to Model API (default is model specific)."""
@@ -206,18 +216,18 @@ class GenerateConfig(BaseModel):
     cache_prompt: Literal["auto"] | bool | None = Field(default=None)
     """Whether to cache the prompt prefix. Defaults to "auto", which will enable caching for requests with tools. Anthropic only."""
 
-    reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = Field(
-        default=None
+    reasoning_effort: Literal["none", "minimal", "low", "medium", "high"] | None = (
+        Field(default=None)
     )
-    """Constrains effort on reasoning for reasoning models (defaults to `medium`). Open AI o-series and gpt-5 models only."""
+    """Constrains effort on reasoning. Defaults vary by provider and model and not all models support all values (please consult provider documentation for details)."""
 
     reasoning_tokens: int | None = Field(default=None)
     """Maximum number of tokens to use for reasoning. Anthropic Claude models only."""
 
-    reasoning_summary: Literal["concise", "detailed", "auto"] | None = Field(
+    reasoning_summary: Literal["none", "concise", "detailed", "auto"] | None = Field(
         default=None
     )
-    """Provide summary of reasoning steps (defaults to no summary). Use 'auto' to access the most detailed summarizer available for the current model. OpenAI reasoning models only."""
+    """Provide summary of reasoning steps (OpenAI reasoning models only). Use 'auto' to access the most detailed summarizer available for the current model (defaults to 'auto' if your organization is verified by OpenAI)."""
 
     reasoning_history: Literal["none", "all", "last", "auto"] | None = Field(
         default=None
@@ -229,6 +239,9 @@ class GenerateConfig(BaseModel):
 
     extra_body: dict[str, Any] | None = Field(default=None)
     """Extra body to be sent with requests to OpenAI compatible servers. OpenAI, vLLM, and SGLang only."""
+
+    cache: bool | CachePolicy | None = Field(default=None)
+    """Policy for caching of model generate output."""
 
     batch: bool | int | BatchConfig | None = Field(default=None)
     """Use batching API when available. True to enable batching with default configuration, False to disable batching, a number to enable batching of the specified batch size, or a BatchConfig object specifying the batching configuration."""

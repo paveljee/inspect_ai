@@ -31,6 +31,7 @@ from inspect_ai._util.dateutil import iso_now
 from inspect_ai._util.error import exception_message
 from inspect_ai._util.exception import TerminateSampleError
 from inspect_ai._util.json import to_json_str_safe
+from inspect_ai._util.notgiven import NOT_GIVEN
 from inspect_ai._util.registry import (
     is_registry_object,
     registry_log_name,
@@ -68,7 +69,6 @@ from inspect_ai.log._transcript import (
     transcript,
 )
 from inspect_ai.model import (
-    CachePolicy,
     GenerateConfig,
     GenerateConfigArgs,
     Model,
@@ -148,6 +148,23 @@ class TaskRunOptions:
     kwargs: GenerateConfigArgs = field(default_factory=lambda: GenerateConfigArgs())
 
 
+def resolve_plan(task: Task, solver: Solver | None) -> Plan:
+    # resolve the plan (unroll chains)
+    solver = solver or task.solver
+    if isinstance(solver, Plan):
+        plan = solver
+    elif isinstance(solver, Chain):
+        plan = Plan(list(solver), cleanup=task.cleanup, internal=True)
+    else:
+        plan = Plan(unroll(solver), cleanup=task.cleanup, internal=True)
+
+    # add setup solver(s) if specified
+    if task.setup:
+        plan.steps = unroll(task.setup) + plan.steps
+
+    return plan
+
+
 async def task_run(options: TaskRunOptions) -> EvalLog:
     from inspect_ai.hooks._hooks import (
         emit_task_end,
@@ -212,16 +229,7 @@ async def task_run(options: TaskRunOptions) -> EvalLog:
 
     # resolve the plan (unroll chains)
     solver = solver or task.solver
-    if isinstance(solver, Plan):
-        plan = solver
-    elif isinstance(solver, Chain):
-        plan = Plan(list(solver), cleanup=task.cleanup, internal=True)
-    else:
-        plan = Plan(unroll(solver), cleanup=task.cleanup, internal=True)
-
-    # add setup solver(s) if specified
-    if task.setup:
-        plan.steps = unroll(task.setup) + plan.steps
+    plan = resolve_plan(task, solver)
 
     # resolve the scorer
     score = score and task.scorer is not None
@@ -278,14 +286,13 @@ async def task_run(options: TaskRunOptions) -> EvalLog:
                 async def generate(
                     state: TaskState,
                     tool_calls: Literal["loop", "single", "none"] = "loop",
-                    cache: bool | CachePolicy = False,
                     **kwargs: Unpack[GenerateConfigArgs],
                 ) -> TaskState:
                     return await task_generate(
                         model=model,
                         state=state,
                         tool_calls=tool_calls,
-                        cache=cache,
+                        cache=kwargs.get("cache", False) or NOT_GIVEN,
                         config=generate_config.merge(kwargs),
                     )
 
@@ -532,6 +539,7 @@ def update_metrics_display_fn(
                                 name=metric.name,
                                 value=metric.value,
                                 reducer=score.reducer,
+                                params=metric.params,
                             )
                         )
                 update_fn(task_metrics)
@@ -683,11 +691,13 @@ async def task_run_sample(
         raise_error: BaseException | None = None
         results: dict[str, SampleScore] = {}
         limit: EvalSampleLimit | None = None
-        try:
-            # begin init
-            init_span = span("init", type="init")
-            await init_span.__aenter__()
 
+        # begin init
+        init_span = span("init", type="init")
+        await init_span.__aenter__()
+        cleanup_span: contextlib.AbstractAsyncContextManager[None] | None = init_span
+
+        try:
             # sample init event (remove file bodies as they have content or absolute paths)
             event_sample = sample.model_copy(
                 update=dict(files={k: "" for k in sample.files.keys()})
@@ -706,6 +716,7 @@ async def task_run_sample(
                         active.sandboxes = await sandbox_connections()
                     finally:
                         await init_span.__aexit__(None, None, None)
+                        cleanup_span = None
 
                     # record start time
                     start_time = time.monotonic()
@@ -729,26 +740,6 @@ async def task_run_sample(
 
                                 # monitor working limit in the background
                                 monitor_working_limit()
-
-                                # emit/log sample start
-                                sample_summary = EvalSampleSummary(
-                                    id=sample_id,
-                                    epoch=state.epoch,
-                                    input=sample.input,
-                                    target=sample.target,
-                                    metadata=sample.metadata or {},
-                                )
-                                if logger is not None:
-                                    await logger.start_sample(sample_summary)
-                                # only emit the sample start once: not on retries
-                                if not error_retries:
-                                    await emit_sample_start(
-                                        eval_set_id,
-                                        run_id,
-                                        task_id,
-                                        state.uuid,
-                                        sample_summary,
-                                    )
 
                                 # set progress for plan then run it
                                 async with span("solvers"):
@@ -808,6 +799,27 @@ async def task_run_sample(
                                 tg.cancel_scope.cancel()
 
                         try:
+                            # emit/log sample start
+                            sample_summary = EvalSampleSummary(
+                                id=sample_id,
+                                epoch=state.epoch,
+                                input=sample.input,
+                                target=sample.target,
+                                metadata=sample.metadata or {},
+                            )
+                            if logger is not None:
+                                await logger.start_sample(sample_summary)
+
+                            # only emit the sample start once: not on retries
+                            if not error_retries:
+                                await emit_sample_start(
+                                    eval_set_id,
+                                    run_id,
+                                    task_id,
+                                    state.uuid,
+                                    sample_summary,
+                                )
+
                             async with anyio.create_task_group() as tg:
                                 tg.start_soon(run, tg)
                         except Exception as ex:
@@ -845,7 +857,7 @@ async def task_run_sample(
                     state = sample_state() or state
                     limit = EvalSampleLimit(type="operator", limit=1)
 
-                except BaseException as ex:
+                except Exception as ex:
                     error, raise_error = handle_error(ex)
 
                 # mark completed
@@ -931,12 +943,15 @@ async def task_run_sample(
 
                     raise
 
-                except BaseException as ex:
+                except Exception as ex:
                     # handle error
                     error, raise_error = handle_error(ex)
 
         except Exception as ex:
             error, raise_error = handle_error(ex)
+        finally:
+            if cleanup_span is not None:
+                await cleanup_span.__aexit__(None, None, None)
 
         # complete the sample if there is no error or if there is no retry_on_error in play
         if not error or (retry_on_error == 0):
@@ -1060,6 +1075,7 @@ def create_eval_sample(
         store=dict(state.store.items()),
         uuid=state.uuid,
         events=list(transcript().events),
+        attachments=dict(transcript().attachments),
         model_usage=sample_model_usage(),
         total_time=round(total_time, 3) if total_time is not None else None,
         working_time=round(total_time - sample_waiting_time(), 3)

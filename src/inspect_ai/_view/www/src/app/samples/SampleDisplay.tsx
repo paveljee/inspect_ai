@@ -5,6 +5,7 @@ import { isVscode } from "../../utils/vscode";
 
 import { ANSIDisplay } from "../../components/AnsiDisplay";
 import { ToolButton } from "../../components/ToolButton";
+import { ToolDropdownButton } from "../../components/ToolDropdownButton";
 import { ApplicationIcons } from "../appearance/icons";
 
 import clsx from "clsx";
@@ -17,6 +18,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { EvalSample, Events } from "../../@types/log";
@@ -34,8 +36,8 @@ import {
 } from "../../constants";
 import {
   useDocumentTitle,
-  useFilteredSamples,
   useSampleData,
+  useSelectedSampleSummary,
 } from "../../state/hooks";
 import { useStore } from "../../state/store";
 import { formatTime } from "../../utils/format";
@@ -43,7 +45,8 @@ import { estimateSize } from "../../utils/json";
 import { printHeadingHtml, printHtml } from "../../utils/print";
 import { RecordTree } from "../content/RecordTree";
 import { useSampleDetailNavigation } from "../routing/sampleNavigation";
-import { sampleUrl, useLogRouteParams } from "../routing/url";
+import { useLogOrSampleRouteParams, useSampleUrlBuilder } from "../routing/url";
+import { messagesToStr } from "../shared/messages";
 import { ModelTokenTable } from "../usage/ModelTokenTable";
 import { ChatViewVirtualList } from "./chat/ChatViewVirtualList";
 import { messagesFromEvents } from "./chat/messages";
@@ -70,10 +73,6 @@ export const SampleDisplay: FC<SampleDisplayProps> = ({
 }) => {
   // Tab ids
   const baseId = `sample-dialog`;
-  const filteredSamples = useFilteredSamples();
-  const selectedSampleIndex = useStore(
-    (state) => state.log.selectedSampleIndex,
-  );
 
   const sampleData = useSampleData();
   const sample = useMemo(() => {
@@ -82,7 +81,7 @@ export const SampleDisplay: FC<SampleDisplayProps> = ({
 
   const runningSampleData = sampleData.running;
 
-  const evalSpec = useStore((state) => state.log.selectedLogSummary?.eval);
+  const evalSpec = useStore((state) => state.log.selectedLogDetails?.eval);
   const { setDocumentTitle } = useDocumentTitle();
   useEffect(() => {
     setDocumentTitle({ evalSpec, sample });
@@ -111,9 +110,7 @@ export const SampleDisplay: FC<SampleDisplayProps> = ({
     return -1;
   }, [tabsRef.current]);
 
-  const sampleSummary = useMemo(() => {
-    return filteredSamples[selectedSampleIndex];
-  }, [filteredSamples, selectedSampleIndex]);
+  const selectedSampleSummary = useSelectedSampleSummary();
 
   // Consolidate the events and messages into the proper list
   // whether running or not
@@ -131,9 +128,9 @@ export const SampleDisplay: FC<SampleDisplayProps> = ({
   // Get all URL parameters at component level
   const {
     logPath: urlLogPath,
-    sampleId: urlSampleId,
+    id: urlSampleId,
     epoch: urlEpoch,
-  } = useLogRouteParams();
+  } = useLogOrSampleRouteParams();
 
   // Focus the panel when it loads
   useEffect(() => {
@@ -145,6 +142,7 @@ export const SampleDisplay: FC<SampleDisplayProps> = ({
   }, []);
 
   // Tab selection
+  const sampleUrlBuilder = useSampleUrlBuilder();
   const onSelectedTab = useCallback(
     (e: MouseEvent<HTMLElement>) => {
       const el = e.currentTarget as HTMLElement;
@@ -153,7 +151,7 @@ export const SampleDisplay: FC<SampleDisplayProps> = ({
 
       // Use navigation hook to update URL with tab
       if (id !== sampleTabId && urlLogPath) {
-        const url = sampleUrl(urlLogPath, urlSampleId, urlEpoch, id);
+        const url = sampleUrlBuilder(urlLogPath, urlSampleId, urlEpoch, id);
         navigate(url);
       }
     },
@@ -208,6 +206,36 @@ export const SampleDisplay: FC<SampleDisplayProps> = ({
   const { isDebugFilter, isDefaultFilter } = useTranscriptFilter();
 
   const tools = [];
+  const [icon, setIcon] = useState(ApplicationIcons.copy);
+
+  tools.push(
+    <ToolDropdownButton
+      key="sample-copy"
+      label="Copy"
+      icon={icon}
+      items={{
+        UUID: () => {
+          if (sample?.uuid) {
+            navigator.clipboard.writeText(sample.uuid);
+            setIcon(ApplicationIcons.confirm);
+            setTimeout(() => {
+              setIcon(ApplicationIcons.copy);
+            }, 1250);
+          }
+        },
+        Transcript: () => {
+          if (sample?.messages) {
+            navigator.clipboard.writeText(messagesToStr(sample.messages));
+            setIcon(ApplicationIcons.confirm);
+            setTimeout(() => {
+              setIcon(ApplicationIcons.copy);
+            }, 1250);
+          }
+        },
+      }}
+    />,
+  );
+
   if (selectedTab === kSampleTranscriptTabId) {
     const label = isDebugFilter
       ? "Debug"
@@ -263,15 +291,16 @@ export const SampleDisplay: FC<SampleDisplayProps> = ({
 
   // Is the sample running?
   const running = useMemo(() => {
-    return isRunning(sampleSummary, runningSampleData);
-  }, [sampleSummary, runningSampleData]);
+    return isRunning(selectedSampleSummary, runningSampleData);
+  }, [selectedSampleSummary, runningSampleData]);
 
   const sampleDetailNavigation = useSampleDetailNavigation();
+  const displaySample = sample || selectedSampleSummary;
 
   return (
     <Fragment>
-      {sample || sampleSummary ? (
-        <SampleSummaryView parent_id={id} sample={sample || sampleSummary} />
+      {displaySample ? (
+        <SampleSummaryView parent_id={id} sample={displaySample} />
       ) : undefined}
       <TabSet
         id={tabsetId}

@@ -111,16 +111,24 @@ class OpenAICompatibleAPI(ModelAPI):
                 "emulate_tools is not compatible with using the responses_api"
             )
 
-        # create async http client
-        http_client = model_args.pop("http_client", OpenAIAsyncHttpxClient())
-        self.client = AsyncOpenAI(
+        # store http_client and model_args for reinitialization
+        self.http_client = model_args.pop("http_client", OpenAIAsyncHttpxClient())
+        self.model_args = model_args
+
+        # create client
+        self.initialize()
+
+    def _create_client(self) -> AsyncOpenAI:
+        return AsyncOpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
-            http_client=http_client,
-            **model_args,
+            http_client=self.http_client,
+            **self.model_args,
         )
 
-        # create time tracker
+    def initialize(self) -> None:
+        super().initialize()
+        self.client = self._create_client()
         self._http_hooks = HttpxHooks(self.client._client)
 
     @override
@@ -148,6 +156,7 @@ class OpenAICompatibleAPI(ModelAPI):
                 background=False,
                 service_tier=None,
                 prompt_cache_key=NOT_GIVEN,
+                prompt_cache_retention=NOT_GIVEN,
                 safety_identifier=NOT_GIVEN,
                 responses_store=self.responses_store,
                 model_info=ModelInfo(),
@@ -253,6 +262,12 @@ class OpenAICompatibleAPI(ModelAPI):
         """Scope for enforcing max_connections (could also use endpoint)."""
         return str(self.api_key)
 
+    @override
+    def is_auth_failure(self, ex: Exception) -> bool:
+        if isinstance(ex, APIStatusError):
+            return ex.status_code == 401
+        return False
+
     def completion_params(self, config: GenerateConfig, tools: bool) -> dict[str, Any]:
         return openai_completion_params(
             model=self.service_model_name(),
@@ -272,6 +287,14 @@ class OpenAICompatibleAPI(ModelAPI):
 
     def handle_bad_request(self, ex: APIStatusError) -> ModelOutput | Exception:
         """Hook for subclasses to do bad request handling"""
+        # Handle DeepInfra input length errors
+        if ex.status_code == 400:
+            content = str(ex)
+            if "input length" in content:
+                return ModelOutput.from_content(
+                    self.model_name, content=content, stop_reason="model_length"
+                )
+
         return openai_handle_bad_request(self.service_model_name(), ex)
 
 
@@ -315,6 +338,12 @@ class ModelInfo(ResponsesModelInfo):
         return False
 
     def is_gpt_5(self) -> bool:
+        return False
+
+    def is_gpt_5_pro(self) -> bool:
+        return False
+
+    def is_gpt_5_chat(self) -> bool:
         return False
 
     def is_o_series(self) -> bool:

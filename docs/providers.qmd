@@ -35,9 +35,10 @@ The `openai` provider supports the following custom model args (other model args
 | `responses_api` | Use the OpenAI Responses API rather than the Chat Completions API. |
 | `responses_store` | Pass `store=True` to the Responses API (defaults to `True`).
 | `service_tier` | Processing type used for serving the request ("auto", "default", or "flex"). |
-| `background` | Run generate requests asynchronously, polling response objects to check status over time. |
+| `background` | Execute generate requests asynchronously, polling response objects to check status over time. Defaults to `True` for `gpt-5-pro` and `deep-research` and `False` for other models.  |
 | `safety_identifier` | A stable identifier used to help detect users of your application. |
 | `prompt_cache_key` | Used by OpenAI to cache responses for similar requests. |
+| `prompt_cache_retention` | Retention policy for the prompt cache. |
 | `http_client` | Custom instance of `httpx.AsyncClient` for handling requests. |
 
 : {tbl-colwidths=\[35,65\]}
@@ -72,14 +73,11 @@ Note that certain models including `o1-pro` and `computer_use_preview` *require*
 
 ### Responses Store
 
-By default, the Responses API stores requests on the server for retrieval of previous reasoning content (which is not transmitted as part of responses). To control this behavior explicitly use the `responses_store` model argument. For example:
+By default, Inspect's implementation of the Responses API does not store messages on the server. Reasoning content (which is intended to be opaque to clients) is handled using encrypted payloads (via the "reasoning.encrypted_content" include option). To control this behavior explicitly use the `responses_store` model argument. For example:
 
 ```bash
-inspect eval math.py --model openai/o4-mini -M responses_store=false
+inspect eval math.py --model openai/o4-mini -M responses_store=True
 ```
-
-For example, you might need to do this if you have a non-logging interface to OpenAI models (as `store` is incompatible with non-logging interfaces). Note that some features (such as computer use) _require_ responses store to be `True`.
-
 
 ### Flex Processing
 
@@ -335,18 +333,18 @@ To use the [Grok](https://x.ai/) provider, install the `openai` package (which t
 
 ``` bash
 pip install openai
-export GROK_API_KEY=your-grok-api-key
+export XAI_API_KEY=your-grok-api-key
 inspect eval arc.py --model grok/grok-3-mini
 ```
 
-For the `grok` provider, custom model args (`-M`) are forwarded to the constructor of the `AsyncOpenAI` class.
+For the `grok` provider, custom model args (`-M`) are forwarded to the constructor of the `AsynClient` class.
 
 The following environment variables are supported by the Grok provider
 
 | Variable | Description |
 |----------------------------|--------------------------------------------|
-| `GROK_API_KEY` | API key credentials (required). |
-| `GROK_BASE_URL` | Base URL for requests (optional, defaults to `https://api.x.ai/v1`) |
+| `XAI_API_KEY` | API key credentials (required). |
+| `XAI_BASE_URL` | Base URL for requests (optional, defaults to `api.x.ai`, note no "https://" prefix is used for the base url). |
 
 ## AWS Bedrock {#aws-bedrock}
 
@@ -526,25 +524,6 @@ The following environment variables are supported by the Perplexity provider
 
 Perplexity responses include citations when available. These are surfaced as `UrlCitation`s attached to the assistant message. Additional usage metrics such as `reasoning_tokens` and `citation_tokens` are recorded in `ModelOutput.metadata`.
 
-## Goodfire {#goodfire}
-
-To use the [Goodfire](https://platform.goodfire.ai/) provider, install the `goodfire` package, set your credentials, and specify a model using the `--model` option:
-
-``` bash
-pip install goodfire
-export GOODFIRE_API_KEY=your-goodfire-api-key
-inspect eval arc.py --model goodfire/meta-llama/Meta-Llama-3.1-8B-Instruct
-```
-
-For the `goodfire` provider, custom model args (`-M`) are forwarded to `chat.completions.create` method of the `AsyncClient` class.
-
-The following environment variables are supported by the Goodfire provider
-
-| Variable | Description |
-|----------------------------|--------------------------------------------|
-| `GOODFIRE_API_KEY` | API key credentials (required). |
-| `GOODFIRE_BASE_URL` | Base URL for requests (optional, defaults to `https://api.goodfire.ai`) |
-
 ## Hugging Face {#hugging-face}
 
 The [Hugging Face](https://huggingface.co/models) provider implements support for local models using the [transformers](https://pypi.org/project/transformers/) package. To use the Hugging Face provider, install the `torch`, `transformers`, and `accelerate` packages and specify a model using the `--model` option:
@@ -644,7 +623,7 @@ vLLM is generally much faster than the Hugging Face provider as the library is d
 
 ### Batching
 
-vLLM automatically handles batching, so you generally don't have to worry about selecting the optimal batch size. However, you can still use the `max_connections` option to control the number of concurrent requests which defaults to 32.
+vLLM automatically handles batching, so you generally don't have to worry about selecting the optimal batch size. However, you can still use the `max_connections` option to control the number of concurrent requests which defaults to 32. If the server has saturated the GPU it may reject requests---these are by default retried after 5 seconds (you can customize this using the `retry_delay` model args, e.g. `-M retry_delay=3`).
 
 ### Device
 
@@ -720,6 +699,11 @@ $ inspect eval arc.py --model sglang/meta-llama/Meta-Llama-3-8B-Instruct --model
 ### Tool Use and Reasoning
 
 SGLang supports tool use and reasoning; however, the usage is often model dependant and requires additional configuration. See the [Tool Use](https://docs.sglang.ai/backend/function_calling.html) and [Reasoning](https://docs.sglang.ai/backend/separate_reasoning.html) sections of the SGLang documentation for details.
+
+### Batching
+
+SGLang automatically handles batching, so you generally don't have to worry about selecting the optimal batch size. However, you can still use the `max_connections` option to control the number of concurrent requests which defaults to 32. If the server has saturated the GPU it may reject requests---these are by default retried after 5 seconds (you can customize this using the `retry_delay` model args, e.g. `-M retry_delay=3`).
+
 
 ## TransformerLens {#transformer-lens}
 
@@ -870,6 +854,7 @@ For the `openrouter` provider, the following custom model args (`-M`) are suppor
 | [`models`](https://openrouter.ai/docs/features/model-routing#the-models-parameter) | `-M "models=anthropic/claude-3.5-sonnet, gryphe/mythomax-l2-13b"` |
 | [`provider`](https://openrouter.ai/docs/features/provider-routing) | `-M "provider={ 'quantizations': ['int8'] }"` |
 | [`transforms`](https://openrouter.ai/docs/features/message-transforms) | `-M "transforms=['middle-out']"` |
+| [`reasoning_enabled`](https://openrouter.ai/docs/use-cases/reasoning-tokens) | `-M "reasoning_enabled=false"` |
 
 : {tbl-colwidths=\[20,85\]}
 
@@ -881,6 +866,32 @@ The following environment variables are supported by the OpenRouter AI provider
 |----------------------------|--------------------------------------------|
 | `OPENROUTER_API_KEY` | API key credentials (required). |
 | `OPENROUTER_BASE_URL` | Base URL for requests (optional, defaults to `https://openrouter.ai/api/v1`) |
+
+## Hugging Face Inference Providers
+
+To use [Hugging Face Inference Providers](https://huggingface.co/docs/inference-providers), install the `openai` package (which provides the compatibility layer), set your Hugging Face token, and specify a model using the `--model` option:
+
+``` bash
+pip install openai
+export HF_TOKEN=your-huggingface-token
+inspect eval arc.py --model hf-inference-providers/openai/gpt-oss-120b
+```
+
+The above will automatically select the provider for you. If you want to use a specific provider you can append `:` followed by the provider name. To use cerebras for example, you would do the following:
+
+``` bash
+pip install openai
+export HF_TOKEN=your-huggingface-token
+inspect eval arc.py --model hf-inference-providers/openai/gpt-oss-120b:cerebras
+```
+
+HF Inference Providers provides unified access to hundreds of machine learning models through multiple world-class inference providers (Cerebras, Groq, Together AI, etc.) with automatic provider routing and failover.
+
+The following environment variables are supported by the HF Inference Providers:
+
+| Variable | Description |
+|----------------------------|--------------------------------------------|
+| `HF_TOKEN` | Hugging Face token with appropriate permissions (required). |
 
 ## Custom Models
 

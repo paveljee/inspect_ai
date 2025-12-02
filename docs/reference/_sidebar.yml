@@ -71,6 +71,8 @@ website:
       - section: inspect_ai.tool
         href: reference/inspect_ai.tool.qmd
         contents:
+        - text: web_search
+          href: reference/inspect_ai.tool.qmd#web_search
         - text: bash
           href: reference/inspect_ai.tool.qmd#bash
         - text: python
@@ -79,14 +81,16 @@ website:
           href: reference/inspect_ai.tool.qmd#bash_session
         - text: text_editor
           href: reference/inspect_ai.tool.qmd#text_editor
-        - text: web_browser
-          href: reference/inspect_ai.tool.qmd#web_browser
         - text: computer
           href: reference/inspect_ai.tool.qmd#computer
-        - text: web_search
-          href: reference/inspect_ai.tool.qmd#web_search
+        - text: code_execution
+          href: reference/inspect_ai.tool.qmd#code_execution
+        - text: memory
+          href: reference/inspect_ai.tool.qmd#memory
         - text: think
           href: reference/inspect_ai.tool.qmd#think
+        - text: web_browser
+          href: reference/inspect_ai.tool.qmd#web_browser
         - text: mcp_connection
           href: reference/inspect_ai.tool.qmd#mcp_connection
         - text: mcp_server_stdio
@@ -133,6 +137,8 @@ website:
           href: reference/inspect_ai.tool.qmd#toolsource
         - text: WebSearchProviders
           href: reference/inspect_ai.tool.qmd#websearchproviders
+        - text: CodeExecutionProviders
+          href: reference/inspect_ai.tool.qmd#codeexecutionproviders
         - text: tool
           href: reference/inspect_ai.tool.qmd#tool
       - section: inspect_ai.agent
@@ -352,10 +358,24 @@ website:
           href: reference/inspect_ai.model.qmd#cache_prune
         - text: cache_path
           href: reference/inspect_ai.model.qmd#cache_path
-        - text: messages_to_openai
-          href: reference/inspect_ai.model.qmd#messages_to_openai
         - text: messages_from_openai
           href: reference/inspect_ai.model.qmd#messages_from_openai
+        - text: messages_from_openai_responses
+          href: reference/inspect_ai.model.qmd#messages_from_openai_responses
+        - text: messages_from_anthropic
+          href: reference/inspect_ai.model.qmd#messages_from_anthropic
+        - text: messages_from_google
+          href: reference/inspect_ai.model.qmd#messages_from_google
+        - text: model_output_from_openai
+          href: reference/inspect_ai.model.qmd#model_output_from_openai
+        - text: model_output_from_openai_responses
+          href: reference/inspect_ai.model.qmd#model_output_from_openai_responses
+        - text: model_output_from_anthropic
+          href: reference/inspect_ai.model.qmd#model_output_from_anthropic
+        - text: model_output_from_google
+          href: reference/inspect_ai.model.qmd#model_output_from_google
+        - text: messages_to_openai
+          href: reference/inspect_ai.model.qmd#messages_to_openai
         - text: modelapi
           href: reference/inspect_ai.model.qmd#modelapi
         - text: ModelAPI
@@ -415,6 +435,10 @@ website:
           href: reference/inspect_ai.log.qmd#read_eval_log_samples
         - text: read_eval_log_sample_summaries
           href: reference/inspect_ai.log.qmd#read_eval_log_sample_summaries
+        - text: edit_score
+          href: reference/inspect_ai.log.qmd#edit_score
+        - text: recompute_metrics
+          href: reference/inspect_ai.log.qmd#recompute_metrics
         - text: convert_eval_logs
           href: reference/inspect_ai.log.qmd#convert_eval_logs
         - text: bundle_log_dir
@@ -587,6 +611,8 @@ website:
           href: reference/inspect_ai.event.qmd#inputevent
         - text: ScoreEvent
           href: reference/inspect_ai.event.qmd#scoreevent
+        - text: ScoreEditEvent
+          href: reference/inspect_ai.event.qmd#scoreeditevent
         - text: LoggingLevel
           href: reference/inspect_ai.event.qmd#logginglevel
         - text: LoggingMessage
@@ -662,8 +688,12 @@ website:
           href: reference/inspect_ai.util.qmd#sandboxenv
         - text: sandbox_service
           href: reference/inspect_ai.util.qmd#sandbox_service
+        - text: registry_info
+          href: reference/inspect_ai.util.qmd#registry_info
         - text: registry_create
           href: reference/inspect_ai.util.qmd#registry_create
+        - text: RegistryInfo
+          href: reference/inspect_ai.util.qmd#registryinfo
         - text: RegistryType
           href: reference/inspect_ai.util.qmd#registrytype
         - text: JSONType

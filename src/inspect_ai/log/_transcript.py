@@ -5,7 +5,6 @@ from typing import (
     Callable,
     Iterator,
     Sequence,
-    Type,
     TypeVar,
     overload,
 )
@@ -18,7 +17,13 @@ from inspect_ai._util.logger import warn_once
 from inspect_ai.event._base import BaseEvent
 from inspect_ai.event._event import Event
 from inspect_ai.event._info import InfoEvent
+from inspect_ai.event._model import ModelEvent
 from inspect_ai.event._store import StoreEvent
+from inspect_ai.log._condense import (
+    WalkContext,
+    events_attachment_fn,
+    walk_model_call,
+)
 from inspect_ai.util._store import store, store_changes, store_jsonable
 
 logger = getLogger(__name__)
@@ -31,6 +36,7 @@ class Transcript:
     """Transcript of events."""
 
     _event_logger: Callable[[Event], None] | None
+    _context: WalkContext
 
     @overload
     def __init__(self) -> None: ...
@@ -40,7 +46,9 @@ class Transcript:
 
     def __init__(self, events: list[Event] | None = None) -> None:
         self._event_logger = None
+        self._context = WalkContext(message_cache={}, only_core=False)
         self._events: list[Event] = events if events is not None else []
+        self._attachments: dict[str, str] = {}
 
     def info(self, data: JsonValue, *, source: str | None = None) -> None:
         """Add an `InfoEvent` to the transcript.
@@ -74,20 +82,29 @@ class Transcript:
     def events(self) -> Sequence[Event]:
         return self._events
 
-    def find_last_event(self, event_cls: Type[ET]) -> ET | None:
-        for event in reversed(self.events):
-            if isinstance(event, event_cls):
-                return event
-        return None
+    @property
+    def attachments(self) -> dict[str, str]:
+        return self._attachments
 
     def _event(self, event: Event) -> None:
         if self._event_logger:
             self._event_logger(event)
+
+        # condense model event calls immediately to prevent O(N) memory usage
+        if isinstance(event, ModelEvent):
+            event_fn = events_attachment_fn(self.attachments)
+            event.call = walk_model_call(event.call, event_fn, self._context)
+
         self._events.append(event)
 
     def _event_updated(self, event: Event) -> None:
         if self._event_logger:
             self._event_logger(event)
+
+        # condense model event call immediately to prevent O(N) memory usage (call is the only changed fields
+        if isinstance(event, ModelEvent):
+            event_fn = events_attachment_fn(self.attachments)
+            event.call = walk_model_call(event.call, event_fn, self._context)
 
     def _subscribe(self, event_logger: Callable[[Event], None]) -> None:
         self._event_logger = event_logger

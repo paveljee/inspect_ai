@@ -20,31 +20,24 @@ from inspect_ai.solver import (
 from inspect_ai.tool import ToolCallError, bash_session, text_editor
 
 
-@pytest.fixture(scope="session")
-def inspect_tool_support_sandbox(local_inspect_tools) -> tuple[str, str]:
-    """
-    Return tuple of (docker, path to sandbox config) based on args.
-
-    Return a path to a docker project configuration for a container
-    with the inspect tools package installed. If pytest is run with
-    --local-inspect-tools, build from source, otherwise pull from
-    dockerhub.
-    """
-    base = Path(__file__).parent
-    if local_inspect_tools:
-        cfg = "test_inspect_tool_support.from_source.yaml"
-    else:
-        cfg = "test_inspect_tool_support.yaml"
-    return "docker", (base / cfg).as_posix()
-
-
+@pytest.mark.parametrize(
+    "sandbox",
+    [
+        "docker",
+        ("docker", str(Path(__file__).parent / ".." / "test_sandbox_compose.yaml")),
+        (
+            "docker",
+            str(Path(__file__).parent / ".." / "test_sandbox_compose_alpine.yaml"),
+        ),
+    ],
+)
 @pytest.mark.slow
-def test_text_editor_read(inspect_tool_support_sandbox):
+def test_text_editor_read(sandbox: str | tuple[str, str]):
     task = Task(
         dataset=[Sample(input="Please read the file '/etc/passwd'")],
         solver=[use_tools([text_editor()]), generate()],
         scorer=match(),
-        sandbox=inspect_tool_support_sandbox,
+        sandbox=sandbox,
     )
     model = get_model(
         "mockllm/model",
@@ -75,12 +68,12 @@ def test_text_editor_read(inspect_tool_support_sandbox):
 
 
 @pytest.mark.slow
-def test_text_editor_read_missing(inspect_tool_support_sandbox):
+def test_text_editor_read_missing():
     task = Task(
         dataset=[Sample(input="Please read the file '/missing.txt'")],
         solver=[use_tools([text_editor()]), generate()],
         scorer=match(),
-        sandbox=inspect_tool_support_sandbox,
+        sandbox="docker",
     )
     model = get_model(
         "mockllm/model",
@@ -112,7 +105,7 @@ def test_text_editor_read_missing(inspect_tool_support_sandbox):
 
 
 @pytest.mark.slow
-def test_bash_session_root(inspect_tool_support_sandbox):
+def test_bash_session_root():
     task = Task(
         dataset=[
             Sample(
@@ -121,7 +114,7 @@ def test_bash_session_root(inspect_tool_support_sandbox):
         ],
         solver=[use_tools([bash_session()]), generate()],
         scorer=match(),
-        sandbox=inspect_tool_support_sandbox,
+        sandbox="docker",
     )
     model = get_model(
         "mockllm/model",
@@ -153,7 +146,7 @@ def test_bash_session_root(inspect_tool_support_sandbox):
 
 
 @pytest.mark.slow
-def test_bash_session_non_root(inspect_tool_support_sandbox):
+def test_bash_session_non_root():
     task = Task(
         dataset=[
             Sample(
@@ -162,7 +155,7 @@ def test_bash_session_non_root(inspect_tool_support_sandbox):
         ],
         solver=[use_tools([bash_session(user="nobody")]), generate()],
         scorer=match(),
-        sandbox=inspect_tool_support_sandbox,
+        sandbox="docker",
     )
     model = get_model(
         "mockllm/model",
@@ -194,7 +187,7 @@ def test_bash_session_non_root(inspect_tool_support_sandbox):
 
 
 @pytest.mark.slow
-def test_bash_session_missing_user(inspect_tool_support_sandbox):
+def test_bash_session_missing_user():
     task = Task(
         dataset=[
             Sample(
@@ -203,7 +196,7 @@ def test_bash_session_missing_user(inspect_tool_support_sandbox):
         ],
         solver=[use_tools([bash_session(user="foo")]), generate()],
         scorer=match(),
-        sandbox=inspect_tool_support_sandbox,
+        sandbox="docker",
     )
     model = get_model(
         "mockllm/model",
@@ -229,7 +222,7 @@ def test_bash_session_missing_user(inspect_tool_support_sandbox):
 
 
 @pytest.mark.slow
-def test_text_editor_user(inspect_tool_support_sandbox):
+def test_text_editor_user():
     task = Task(
         dataset=[
             Sample(
@@ -241,7 +234,7 @@ def test_text_editor_user(inspect_tool_support_sandbox):
             generate(),
         ],
         scorer=match(),
-        sandbox=inspect_tool_support_sandbox,
+        sandbox="docker",
     )
     flag = "this_is_it"
     model = get_model(

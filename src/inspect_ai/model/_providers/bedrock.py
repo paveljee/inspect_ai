@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from typing_extensions import override
 
 from inspect_ai._util._async import current_async_backend
-from inspect_ai._util.constants import DEFAULT_MAX_TOKENS
+from inspect_ai._util.constants import DEFAULT_MAX_TOKENS, NO_CONTENT
 from inspect_ai._util.content import (
     Content,
     ContentImage,
@@ -338,6 +338,19 @@ class BedrockAPI(ModelAPI):
         # an error from claude indicating the signature was missing)
         return self.is_claude()
 
+    @override
+    def is_auth_failure(self, ex: Exception) -> bool:
+        from botocore.exceptions import ClientError
+
+        if isinstance(ex, ClientError):
+            error_code = ex.response.get("Error", {}).get("Code", "")
+            return error_code in [
+                "UnrecognizedClientException",
+                "ExpiredTokenException",
+                "InvalidSignatureException",
+            ]
+        return False
+
     def is_gpt_oss(self) -> bool:
         return "gpt-oss" in self.model_name
 
@@ -419,8 +432,8 @@ class BedrockAPI(ModelAPI):
             except ClientError as ex:
                 # Look for an explicit validation exception
                 if ex.response["Error"]["Code"] == "ValidationException":
-                    response = ex.response["Error"]["Message"]
-                    if "too many input tokens" in response.lower():
+                    response = ex.response["Error"]["Message"].lower()
+                    if "too many input tokens" in response or "is too long" in response:
                         return ModelOutput.from_content(
                             model=self.model_name,
                             content=response,
@@ -690,6 +703,12 @@ async def converse_contents(
                 )
             else:
                 raise RuntimeError(f"Unsupported content type {c.type}")
+
+        # if result is empty converse will reject the api call so insert
+        # a dummy 'no content' as required
+        if len(result) == 0:
+            result = [ConverseMessageContent(text=NO_CONTENT)]
+
         return result
 
 

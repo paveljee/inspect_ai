@@ -1,40 +1,41 @@
-import asyncio
-import contextlib
 import logging
 import os
 import urllib.parse
 from logging import LogRecord, getLogger
 from pathlib import Path
-from typing import Any, AsyncIterator, Awaitable, Callable, Literal, TypeVar, cast
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    TypeVar,
+)
 
-import fsspec  # type: ignore
 from aiohttp import web
-from fsspec.asyn import AsyncFileSystem  # type: ignore
-from fsspec.core import split_protocol  # type: ignore
 from pydantic_core import to_jsonable_python
-from s3fs import S3FileSystem  # type: ignore
 
 from inspect_ai._display import display
 from inspect_ai._eval.evalset import EvalSet, read_eval_set_info
 from inspect_ai._util.constants import DEFAULT_SERVER_HOST, DEFAULT_VIEW_PORT
 from inspect_ai._util.file import (
-    default_fs_options,
-    dirname,
     filesystem,
-    size_in_mb,
 )
 from inspect_ai.log._file import (
-    EvalLogInfo,
-    eval_log_json,
-    is_log_file,
-    list_eval_logs,
-    log_file_info,
-    log_files_from_ls,
-    read_eval_log_async,
     read_eval_log_headers_async,
 )
 from inspect_ai.log._recorders.buffer.buffer import sample_buffer
 
+from .common import (
+    async_connection,
+    delete_log,
+    get_log_bytes,
+    get_log_dir,
+    get_log_file,
+    get_log_files,
+    get_log_size,
+    get_logs,
+    normalize_uri,
+    parse_log_token,
+)
 from .notify import view_last_eval_time
 
 logger = getLogger(__name__)
@@ -78,8 +79,8 @@ def view_server(
         # log file requested
         file = normalize_uri(request.match_info["log"])
         validate_log_file_request(file)
-
-        return await log_size_response(file)
+        size = await get_log_size(file)
+        return web.json_response(size)
 
     @routes.get("/api/log-delete/{log}")
     async def api_log_delete(request: web.Request) -> web.Response:
@@ -87,7 +88,9 @@ def view_server(
         file = normalize_uri(request.match_info["log"])
         validate_log_file_request(file)
 
-        return await log_delete_response(file)
+        await delete_log(file)
+
+        return web.json_response(True)
 
     @routes.get("/api/log-bytes/{log}")
     async def api_log_bytes(request: web.Request) -> web.Response:
@@ -96,14 +99,35 @@ def view_server(
         validate_log_file_request(file)
 
         # header_only is based on a size threshold
-        start = request.query.get("start", None)
-        if start is None:
+        start_param = request.query.get("start", None)
+        if start_param is None:
             return web.HTTPBadRequest(reason="No 'start' query param.")
-        end = request.query.get("end", None)
-        if end is None:
+        end_param = request.query.get("end", None)
+        if end_param is None:
             return web.HTTPBadRequest(reason="No 'end' query param")
+        start = int(start_param)
+        end = int(end_param)
+        headers = {
+            "Content-Length": str(end - start + 1),
+        }
+        body = await get_log_bytes(file, start, end)
+        return web.Response(
+            body=body, headers=headers, content_type="application/octet-stream"
+        )
 
-        return await log_bytes_response(file, int(start), int(end))
+    @routes.get("/api/log-dir")
+    async def api_log_dir(request: web.Request) -> web.Response:
+        # log dir can optionally be overridden by the request
+        if authorization:
+            request_log_dir = request.query.getone("log_dir", None)
+            if request_log_dir:
+                request_log_dir = normalize_uri(request_log_dir)
+            else:
+                request_log_dir = log_dir
+        else:
+            request_log_dir = log_dir
+
+        return web.json_response(get_log_dir(request_log_dir))
 
     @routes.get("/api/logs")
     async def api_logs(request: web.Request) -> web.Response:
@@ -117,36 +141,98 @@ def view_server(
         else:
             request_log_dir = log_dir
 
-        # if the log_dir contains the path to a specific file
-        # then just return that file
-        if is_log_file(request_log_dir, [".json"]):
-            file_info = await eval_log_info_async(request_log_dir)
-            if file_info is not None:
-                return log_listing_response(
-                    logs=[file_info], log_dir=dirname(request_log_dir)
-                )
-            else:
-                return web.Response(status=404, reason="File not found")
-
-        # list logs
-        logs = await list_eval_logs_async(
-            log_dir=request_log_dir, recursive=recursive, fs_options=fs_options
+        listing = await get_logs(
+            request_log_dir, recursive=recursive, fs_options=fs_options
         )
-        return log_listing_response(logs, request_log_dir)
+        if listing is None:
+            return web.Response(status=404, reason="File not found")
+        return web.json_response(listing)
+
+    @routes.get("/api/log-files")
+    async def api_log_files(request: web.Request) -> web.Response:
+        # log dir can optionally be overridden by the request
+        if authorization:
+            request_log_dir = request.query.getone("log_dir", None)
+            if request_log_dir:
+                request_log_dir = normalize_uri(request_log_dir)
+            else:
+                request_log_dir = log_dir
+        else:
+            request_log_dir = log_dir
+
+        # see if there is an etag
+        client_etag = request.headers.get("If-None-Match")
+        mtime = 0.0
+        file_count = 0
+        if client_etag is not None:
+            mtime, file_count = parse_log_token(client_etag)
+
+        log_files_response: dict[str, Any] = await get_log_files(
+            request_log_dir,
+            recursive=recursive,
+            fs_options=fs_options,
+            mtime=mtime,
+            file_count=file_count,
+        )
+        return web.json_response(log_files_response)
 
     @routes.get("/api/eval-set")
     async def eval_set(request: web.Request) -> web.Response:
         # log dir can optionally be overridden by the request
+        if authorization:
+            request_log_dir = request.query.getone("log_dir", None)
+            if request_log_dir:
+                request_log_dir = normalize_uri(request_log_dir)
+            else:
+                request_log_dir = log_dir
+        else:
+            request_log_dir = log_dir
 
         request_dir = request.query.getone("dir", None)
         if request_dir:
-            request_dir = log_dir + "/" + request_dir.lstrip("/")
+            if request_log_dir:
+                request_dir = request_log_dir + "/" + request_dir.lstrip("/")
+            else:
+                request_dir = request_dir.lstrip("/")
             validate_log_file_request(request_dir)
         else:
-            request_dir = log_dir
+            request_dir = request_log_dir
 
         eval_set = read_eval_set_info(request_dir, fs_options=fs_options)
         return web.json_response(to_jsonable_python(eval_set, exclude_none=True))
+
+    @routes.get("/api/flow")
+    async def flow(request: web.Request) -> web.Response:
+        # log dir can optionally be overridden by the request
+        if authorization:
+            request_log_dir = request.query.getone("log_dir", None)
+            if request_log_dir:
+                request_log_dir = normalize_uri(request_log_dir)
+            else:
+                request_log_dir = log_dir
+        else:
+            request_log_dir = log_dir
+
+        request_dir = request.query.getone("dir", None)
+        if request_dir:
+            if request_log_dir:
+                request_dir = request_log_dir + "/" + request_dir.lstrip("/")
+            else:
+                request_dir = request_dir.lstrip("/")
+            validate_log_file_request(request_dir)
+        else:
+            request_dir = request_log_dir
+
+        fs = filesystem(request_dir)
+        flow_file = f"{request_dir}{fs.sep}flow.yaml"
+        if fs.exists(flow_file):
+            bytes = fs.read_bytes(flow_file)
+
+            return web.Response(
+                text=bytes.decode("utf-8"), content_type="application/yaml", status=200
+            )
+        else:
+            return web.Response(status=404, reason="Flow file not found")
 
     @routes.get("/api/log-headers")
     async def api_log_headers(request: web.Request) -> web.Response:
@@ -264,46 +350,8 @@ def view_server(
         print=display().print,
         access_log_format='%a %t "%r" %s %b (%Tf)',
         shutdown_timeout=1,
+        keepalive_timeout=15,
     )
-
-
-def normalize_uri(uri: str) -> str:
-    """Normalize incoming URIs to a consistent format."""
-    # Decode any URL-encoded characters
-    parsed = urllib.parse.urlparse(urllib.parse.unquote(uri))
-
-    if parsed.scheme != "file":
-        # If this isn't a file uri, just unquote it
-        return urllib.parse.unquote(uri)
-
-    else:
-        # If this is a file uri, see whether we should process triple slashes
-        # down to double slashes
-        path = parsed.path
-
-        # Detect and normalize Windows-style file URIs
-        if path.startswith("/") and len(path) > 3 and path[2] == ":":
-            # Strip leading `/` before drive letter
-            path = path[1:]
-
-        return f"file://{path}"
-
-
-def log_listing_response(logs: list[EvalLogInfo], log_dir: str) -> web.Response:
-    response = dict(
-        log_dir=aliased_path(log_dir),
-        files=[
-            dict(
-                name=log.name,
-                size=log.size,
-                mtime=log.mtime,
-                task=log.task,
-                task_id=log.task_id,
-            )
-            for log in logs
-        ],
-    )
-    return web.json_response(response)
 
 
 def eval_set_response(eval_set: EvalSet | None) -> web.Response:
@@ -329,46 +377,14 @@ def eval_set_response(eval_set: EvalSet | None) -> web.Response:
 
 
 async def log_file_response(file: str, header_only_param: str | None) -> web.Response:
-    # resolve header_only
-    header_only_mb = int(header_only_param) if header_only_param is not None else None
-    header_only = resolve_header_only(file, header_only_mb)
-
     try:
-        contents: bytes | None = None
-        if header_only:
-            try:
-                log = await read_eval_log_async(file, header_only=True)
-                contents = eval_log_json(log)
-            except ValueError as ex:
-                logger.info(
-                    f"Unable to read headers from log file {file}: {ex}. "
-                    + "The file may include a NaN or Inf value. Falling back to reading entire file."
-                )
-
-        if contents is None:  # normal read
-            log = await read_eval_log_async(file, header_only=False)
-            contents = eval_log_json(log)
+        contents = await get_log_file(file, header_only_param)
 
         return web.Response(body=contents, content_type="application/json")
 
     except Exception as error:
         logger.exception(error)
         return web.Response(status=500, reason="File not found")
-
-
-async def log_size_response(log_file: str) -> web.Response:
-    fs = filesystem(log_file)
-    if fs.is_async():
-        info = fs._file_info(await async_connection(log_file)._info(log_file))
-    else:
-        info = fs.info(log_file)
-    return web.json_response(info.size)
-
-
-async def log_delete_response(log_file: str) -> web.Response:
-    fs = filesystem(log_file)
-    fs.rm(log_file)
-    return web.json_response(True)
 
 
 async def log_bytes_response(log_file: str, start: int, end: int) -> web.Response:
@@ -426,102 +442,6 @@ class WWWResource(web.StaticResource):
         return response
 
 
-def aliased_path(path: str) -> str:
-    home_dir = os.path.expanduser("~")
-    if path.startswith(home_dir):
-        return path.replace(home_dir, "~", 1)
-    else:
-        return path
-
-
-def resolve_header_only(path: str, header_only: int | None) -> bool:
-    # if there is a max_size passed, respect that and switch to
-    # header_only mode if the file is too large
-    if header_only == 0:
-        return True
-    if header_only is not None and size_in_mb(path) > int(header_only):
-        return True
-    else:
-        return False
-
-
-async def eval_log_info_async(
-    log_file: str,
-    fs_options: dict[str, Any] = {},
-) -> EvalLogInfo | None:
-    """Get EvalLogInfo for a specific log file asynchronously.
-
-    Args:
-        log_file (str): The complete path to the log file
-        fs_options (dict[str, Any]): Optional. Additional arguments to pass through
-
-    Returns:
-        EvalLogInfo or None: The EvalLogInfo object if the file exists and is valid, otherwise None.
-    """
-    fs = filesystem(log_file, fs_options)
-    if fs.exists(log_file):
-        info = fs.info(log_file)
-        return log_file_info(info)
-    else:
-        return None
-
-
-async def list_eval_logs_async(
-    log_dir: str = os.environ.get("INSPECT_LOG_DIR", "./logs"),
-    formats: list[Literal["eval", "json"]] | None = None,
-    recursive: bool = True,
-    descending: bool = True,
-    fs_options: dict[str, Any] = {},
-) -> list[EvalLogInfo]:
-    """List all eval logs in a directory.
-
-    Will be async for filesystem providers that support async (e.g. s3, gcs, etc.)
-    otherwise will fallback to sync implementation.
-
-    Args:
-      log_dir (str): Log directory (defaults to INSPECT_LOG_DIR)
-      formats (Literal["eval", "json"]): Formats to list (default
-        to listing all formats)
-      recursive (bool): List log files recursively (defaults to True).
-      descending (bool): List in descending order.
-      fs_options (dict[str, Any]): Optional. Additional arguments to pass through
-          to the filesystem provider (e.g. `S3FileSystem`).
-
-    Returns:
-       List of EvalLog Info.
-    """
-    # async filesystem if we can
-    fs = filesystem(log_dir, fs_options)
-    if fs.is_async():
-        async with async_fileystem(log_dir, fs_options=fs_options) as async_fs:
-            if await async_fs._exists(log_dir):
-                # prevent caching of listings
-                async_fs.invalidate_cache(log_dir)
-                # list logs
-                if recursive:
-                    files: list[dict[str, Any]] = []
-                    async for _, _, filenames in async_fs._walk(log_dir, detail=True):
-                        files.extend(filenames.values())
-                else:
-                    files = cast(
-                        list[dict[str, Any]],
-                        await async_fs._ls(log_dir, detail=True),
-                    )
-                logs = [fs._file_info(file) for file in files]
-                # resolve to eval logs
-                return log_files_from_ls(logs, formats, descending)
-            else:
-                return []
-    else:
-        return list_eval_logs(
-            log_dir=log_dir,
-            formats=formats,
-            recursive=recursive,
-            descending=descending,
-            fs_options=fs_options,
-        )
-
-
 def filter_aiohttp_log() -> None:
     #  filter overly chatty /api/events messages
     class RequestFilter(logging.Filter):
@@ -536,49 +456,6 @@ def filter_aiohttp_log() -> None:
 
     # add the filter
     access_logger.addFilter(RequestFilter())
-
-
-_async_connections: dict[str, AsyncFileSystem] = {}
-
-
-def async_connection(log_file: str) -> AsyncFileSystem:
-    # determine protocol
-    protocol, _ = split_protocol(log_file)
-    protocol = protocol or "file"
-
-    # create connection if required
-    if protocol not in _async_connections.keys():
-        _async_connections[protocol] = fsspec.filesystem(
-            protocol, asynchronous=True, loop=asyncio.get_event_loop()
-        )
-
-    # return async file-system
-    return _async_connections.get(protocol)
-
-
-@contextlib.asynccontextmanager
-async def async_fileystem(
-    location: str, fs_options: dict[str, Any] = {}
-) -> AsyncIterator[AsyncFileSystem]:
-    # determine protocol
-    protocol, _ = split_protocol(location)
-    protocol = protocol or "file"
-
-    # build options
-    options = default_fs_options(location)
-    options.update(fs_options)
-
-    if protocol == "s3":
-        options["skip_instance_cache"] = True
-        s3 = S3FileSystem(asynchronous=True, **options)
-        session = await s3.set_session()
-        try:
-            yield s3
-        finally:
-            await session.close()
-    else:
-        options.update({"asynchronous": True, "loop": asyncio.get_event_loop()})
-        yield fsspec.filesystem(protocol, **options)
 
 
 T = TypeVar("T")  # Define type variable

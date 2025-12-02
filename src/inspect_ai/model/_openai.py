@@ -8,6 +8,7 @@ import httpx
 from openai import (
     DEFAULT_CONNECTION_LIMITS,
     DEFAULT_TIMEOUT,
+    APIConnectionError,
     APIStatusError,
     APITimeoutError,
     OpenAIError,
@@ -254,6 +255,8 @@ def openai_completion_params(
             ),
         )
     if config.extra_body:
+        # never supported for completions as requires 'store'
+        config.extra_body.pop("metadata", None)
         params["extra_body"] = config.extra_body
 
     return params
@@ -676,7 +679,7 @@ def openai_should_retry(ex: BaseException) -> bool:
         return is_retryable_http_status(ex.status_code)
     elif isinstance(ex, OpenAIResponseError):
         return ex.code in ["rate_limit_exceeded", "server_error"]
-    elif isinstance(ex, APITimeoutError):
+    elif isinstance(ex, APIConnectionError | APITimeoutError):
         return True
     else:
         return False

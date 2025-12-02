@@ -1,22 +1,29 @@
+from __future__ import annotations
+
 import contextlib
 import functools
 from copy import deepcopy
 from pathlib import Path
 from typing import (
+    TYPE_CHECKING,
     Any,
     AsyncContextManager,
     AsyncGenerator,
     Callable,
     Literal,
     Sequence,
+    Tuple,
 )
+
+if TYPE_CHECKING:
+    from inspect_ai.scorer._scorers import Scorers
 
 import anyio
 
 from inspect_ai._display import display as display_manager
 from inspect_ai._eval.context import init_task_context
 from inspect_ai._eval.loader import scorer_from_spec
-from inspect_ai._eval.task.task import resolve_scorer_metrics
+from inspect_ai._eval.task.task import resolve_scorer, resolve_scorer_metrics
 from inspect_ai._util._async import configured_async_backend, run_coroutine, tg_collect
 from inspect_ai._util.platform import platform_init, running_in_notebook
 from inspect_ai._util.registry import registry_create, registry_unqualified_name
@@ -27,6 +34,7 @@ from inspect_ai.log import (
     EvalLog,
 )
 from inspect_ai.log._log import EvalMetricDefinition, EvalSample
+from inspect_ai.log._score import _find_scorers_span
 from inspect_ai.log._transcript import Transcript, init_transcript, transcript
 from inspect_ai.model import ModelName
 from inspect_ai.model._model import get_model
@@ -56,7 +64,7 @@ ScoreAction = Literal["append", "overwrite"]
 
 def score(
     log: EvalLog,
-    scorers: Scorer | list[Scorer],
+    scorers: "Scorers",
     epochs_reducer: ScoreReducers | None = None,
     action: ScoreAction | None = None,
     display: DisplayType | None = None,
@@ -124,11 +132,8 @@ def _get_updated_scores(
 def _get_updated_events(
     sample: EvalSample, new_events: Sequence[Event], action: ScoreAction
 ) -> list[Event]:
-    final_scorers_node: SpanNode | None = None
     sample_event_tree = event_tree(sample.events)
-    for node in walk_node_spans(sample_event_tree):
-        if node.type == "scorers" and node.name == "scorers":
-            final_scorers_node = node
+    final_scorers_node = _find_scorers_span(sample_event_tree)
 
     if final_scorers_node is None:
         return [*sample.events, *new_events]
@@ -164,7 +169,7 @@ def _get_updated_events(
 
 async def score_async(
     log: EvalLog,
-    scorers: list[Scorer],
+    scorers: "Scorers",
     epochs_reducer: ScoreReducers | None = None,
     action: ScoreAction | None = None,
     display: DisplayType | None = None,
@@ -195,6 +200,9 @@ async def score_async(
     if samples is None and log.samples is None:
         raise ValueError("There are no samples to score in the log.")
 
+    # resolve scorers
+    resolved_scorers = resolve_scorer(scorers)
+
     if copy:
         # deepcopy so we don't mutate the passed log
         log = deepcopy(log)
@@ -222,21 +230,31 @@ async def score_async(
     action = action or "append"
 
     with display_manager().progress(total=total_samples) as p:
+        scorer_names: list[str] | None = None
         scores: list[dict[str, SampleScore] | None] = [None] * total_samples
 
         async def _score_sample(idx_sample: int) -> None:
+            nonlocal scorer_names
+            sample_score: dict[str, SampleScore] = {}
+
             async with samples(idx_sample) as sample:
-                await _run_score_task(log, sample, scorers, action)
+                # run the task, capturing the resulting sample scores
+                # and sample names for later use. The sample scores
+                # returned here are only the _newly created_ scores
+                # which means that metrics below are being computed
+                # only for the new scores (not all scores on the sample)
+                #
+                # We need to capture the the full sample score here
+                # since the sample score carries the scorer name that generated
+                # it (so using sample.scores directly isn't enough)
+                sample_score, names = await _run_score_task(
+                    log, sample, resolved_scorers, action
+                )
 
             assert sample.scores is not None
-            scores[idx_sample] = {
-                score_key: SampleScore(
-                    score=score,
-                    sample_id=sample.id,
-                    sample_metadata=sample.metadata,
-                )
-                for score_key, score in sample.scores.items()
-            }
+            scores[idx_sample] = sample_score
+            if scorer_names is None:
+                scorer_names = names
             p.update(1)
 
         await tg_collect(
@@ -251,7 +269,7 @@ async def score_async(
         log_metrics = metrics_from_log_header(log)
 
         # resolve the scorer metrics onto the scorers
-        scorers = resolve_scorer_metrics(scorers, log_metrics) or []
+        resolved_scorers = resolve_scorer_metrics(resolved_scorers, log_metrics) or []
 
         # override epochs_reducer if specified
         epochs_reducer = create_reducers(epochs_reducer)
@@ -261,13 +279,26 @@ async def score_async(
             epochs_reducer = reducers_from_log_header(log)
 
         # compute metrics
-        log.results, log.reductions = eval_results(
+        results, reductions = eval_results(
             total_samples,
             list(filter(None, scores)),
             epochs_reducer,
-            scorers,
+            resolved_scorers,
             log_metrics,
+            scorer_names,
         )
+
+        # Since the metrics calculation above is only be done using the scorers
+        # and scores that were generated during this scoring run, we need to process
+        # the results carefully, depending upon whether the action was "append" or "overwrite"
+        log.reductions = reductions
+        if action == "overwrite" or log.results is None:
+            # Completely replace the results with the new results
+            log.results = results
+        else:
+            # Only update the results with the new scores, leaving the rest
+            # of the results as they were
+            log.results.scores.extend(results.scores)
 
     return log
 
@@ -277,7 +308,7 @@ async def _run_score_task(
     sample: EvalSample,
     scorers: list[Scorer],
     action: ScoreAction,
-) -> None:
+) -> Tuple[dict[str, SampleScore], list[str]]:
     target = Target(sample.target)
     state = TaskState(
         model=ModelName(log_header.eval.model),
@@ -292,6 +323,7 @@ async def _run_score_task(
         metadata=sample.metadata,
         store=sample.store,
         scores=(sample.scores or {}).copy() if action == "append" else {},
+        sample_uuid=sample.uuid,
     )
 
     # get the model then initialize the async context
@@ -316,11 +348,13 @@ async def _run_score_task(
     existing_score_names = [*state.scores]
 
     results: dict[str, SampleScore] = {}
+    scorer_names: list[str] = []
     async with span(name="scorers"):
         for scorer in scorers:
             scorer_name = unique_scorer_name(
                 scorer, list({*existing_score_names, *results})
             )
+            scorer_names.append(scorer_name)
             async with span(name=scorer_name, type="scorer"):
                 score_result = await scorer(state, target)
                 if scorer_name in state.scores:
@@ -349,6 +383,10 @@ async def _run_score_task(
 
     sample.scores = _get_updated_scores(sample, results, action=action)
     sample.events = _get_updated_events(sample, new_events, action=action)
+
+    # return the actual sample scorers and scorer names that
+    # were used to generate this set of scores
+    return results, scorer_names
 
 
 def metrics_from_log_header(
@@ -388,7 +426,7 @@ def reducers_from_log_header(log: EvalLog) -> list[ScoreReducer] | None:
 
 
 def resolve_scorers(
-    log: EvalLog, scorer: str | None, scorer_args: dict[str, Any] | None
+    log: EvalLog, scorer: str | None = None, scorer_args: dict[str, Any] | None = None
 ) -> list[Scorer]:
     """
     Create a list of Scorer objects from an evaluation log.

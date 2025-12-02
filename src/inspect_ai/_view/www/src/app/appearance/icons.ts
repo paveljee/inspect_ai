@@ -64,6 +64,7 @@ export const ApplicationIcons = {
   epoch: (epoch: string) => {
     return `bi bi-${epoch}-circle`;
   },
+  edit: "bi bi-pencil-square",
   error: "bi bi-exclamation-circle-fill",
   eval: "bi bi-info-circle-fill",
   "eval-set": "bi bi-list-task",
@@ -75,6 +76,7 @@ export const ApplicationIcons = {
   filter: "bi bi-funnel",
   folder: "bi bi-folder",
   fork: "bi bi-signpost-split",
+  flow: "ii inspect-flow",
   home: "bi bi-house",
   info: "bi bi-info-circle",
   input: "bi bi-terminal",
@@ -104,6 +106,7 @@ export const ApplicationIcons = {
     back: "ii inspect-icon-back",
     forward: "ii inspect-icon-forward",
     inspectLogo: "ii inspect-icon-16",
+    tasks: "ii inspect-icon-tasks",
   },
 
   next: "bi bi-chevron-right",

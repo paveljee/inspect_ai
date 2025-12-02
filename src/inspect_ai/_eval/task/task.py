@@ -1,6 +1,11 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from logging import getLogger
-from typing import Any, Awaitable, Callable, Mapping, Sequence, cast
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Sequence, cast, overload
+
+if TYPE_CHECKING:
+    from inspect_ai.scorer._scorers import Scorers
 
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack
@@ -16,11 +21,16 @@ from inspect_ai._util.registry import (
 )
 from inspect_ai.agent._agent import Agent, is_agent
 from inspect_ai.agent._as_solver import as_solver
-from inspect_ai.approval._policy import ApprovalPolicy, approval_policies_from_config
+from inspect_ai.approval._policy import (
+    ApprovalPolicy,
+    ApprovalPolicyConfig,
+    approval_policies_from_config,
+)
 from inspect_ai.dataset import Dataset, MemoryDataset, Sample
 from inspect_ai.log import EvalLog
 from inspect_ai.model import GenerateConfig
-from inspect_ai.model._model import Model, get_model
+from inspect_ai.model._model import Model
+from inspect_ai.model._util import resolve_model, resolve_model_roles
 from inspect_ai.scorer import Metric, Scorer
 from inspect_ai.scorer._reducer import ScoreReducers, create_reducers
 from inspect_ai.solver import Plan, Solver, generate
@@ -56,7 +66,7 @@ class Task:
         setup: Solver | list[Solver] | None = None,
         solver: Solver | Agent | list[Solver] = generate(),
         cleanup: Callable[[TaskState], Awaitable[None]] | None = None,
-        scorer: Scorer | list[Scorer] | None = None,
+        scorer: "Scorers" | None = None,
         metrics: list[Metric | dict[str, list[Metric]]]
         | dict[str, list[Metric]]
         | None = None,
@@ -64,7 +74,7 @@ class Task:
         config: GenerateConfig = GenerateConfig(),
         model_roles: dict[str, str | Model] | None = None,
         sandbox: SandboxEnvironmentType | None = None,
-        approval: str | list[ApprovalPolicy] | None = None,
+        approval: str | ApprovalPolicyConfig | list[ApprovalPolicy] | None = None,
         epochs: int | Epochs | None = None,
         fail_on_error: bool | float | None = None,
         continue_on_fail: bool | None = None,
@@ -94,7 +104,7 @@ class Task:
             model_roles: Named roles for use in `get_model()`.
             sandbox: Sandbox environment type (or optionally a str or tuple with a shorthand spec)
             approval: Tool use approval policies.
-                Either a path to an approval policy config file or a list of approval policies. Defaults to no approval policy.
+                Either a path to an approval policy config file, an ApprovalPolicyConfig, or a list of approval policies. Defaults to no approval policy.
             epochs: Epochs to repeat samples for and optional score
                 reducer function(s) used to combine sample scores (defaults to "mean")
             fail_on_error: `True` to fail on first sample error
@@ -206,9 +216,9 @@ def task_with(
     *,
     dataset: Dataset | Sequence[Sample] | None | NotGiven = NOT_GIVEN,
     setup: Solver | list[Solver] | None | NotGiven = NOT_GIVEN,
-    solver: Solver | list[Solver] | NotGiven = NOT_GIVEN,
+    solver: Solver | Agent | list[Solver] | NotGiven = NOT_GIVEN,
     cleanup: Callable[[TaskState], Awaitable[None]] | None | NotGiven = NOT_GIVEN,
-    scorer: Scorer | list[Scorer] | None | NotGiven = NOT_GIVEN,
+    scorer: "Scorers" | None | NotGiven = NOT_GIVEN,
     metrics: list[Metric | dict[str, list[Metric]]]
     | dict[str, list[Metric]]
     | None
@@ -217,7 +227,11 @@ def task_with(
     config: GenerateConfig | NotGiven = NOT_GIVEN,
     model_roles: dict[str, str | Model] | NotGiven = NOT_GIVEN,
     sandbox: SandboxEnvironmentType | None | NotGiven = NOT_GIVEN,
-    approval: str | list[ApprovalPolicy] | None | NotGiven = NOT_GIVEN,
+    approval: str
+    | ApprovalPolicyConfig
+    | list[ApprovalPolicy]
+    | None
+    | NotGiven = NOT_GIVEN,
     epochs: int | Epochs | None | NotGiven = NOT_GIVEN,
     fail_on_error: bool | float | None | NotGiven = NOT_GIVEN,
     continue_on_fail: bool | None | NotGiven = NOT_GIVEN,
@@ -226,7 +240,7 @@ def task_with(
     time_limit: int | None | NotGiven = NOT_GIVEN,
     working_limit: int | None | NotGiven = NOT_GIVEN,
     name: str | None | NotGiven = NOT_GIVEN,
-    version: int | NotGiven = NOT_GIVEN,
+    version: int | str | NotGiven = NOT_GIVEN,
     metadata: dict[str, Any] | None | NotGiven = NOT_GIVEN,
 ) -> Task:
     """Task adapted with alternate values for one or more options.
@@ -250,7 +264,7 @@ def task_with(
         model_roles: Named roles for use in `get_model()`.
         sandbox: Sandbox environment type (or optionally a str or tuple with a shorthand spec)
         approval: Tool use approval policies.
-            Either a path to an approval policy config file or a list of approval policies. Defaults to no approval policy.
+            Either a path to an approval policy config file, an ApprovalPolicyConfig, or a list of approval policies. Defaults to no approval policy.
         epochs: Epochs to repeat samples for and optional score
             reducer function(s) used to combine sample scores (defaults to "mean")
         fail_on_error: `True` to fail on first sample error
@@ -359,11 +373,11 @@ class PreviousTask:
 
 
 def resolve_approval(
-    approval: str | list[ApprovalPolicy] | None,
+    approval: str | ApprovalPolicyConfig | list[ApprovalPolicy] | None,
 ) -> list[ApprovalPolicy] | None:
     return (
         approval_policies_from_config(approval)
-        if isinstance(approval, str)
+        if isinstance(approval, str | ApprovalPolicyConfig)
         else approval
     )
 
@@ -398,32 +412,36 @@ def resolve_solver(solver: Solver | Agent | list[Solver]) -> Solver:
         return cast(Solver, solver)
 
 
-def resolve_model(model: str | Model | None) -> Model | None:
-    if isinstance(model, str):
-        return get_model(model)
+@overload
+def resolve_scorer(scorer: "Scorers") -> list[Scorer]: ...
+
+
+@overload
+def resolve_scorer(scorer: None) -> None: ...
+
+
+def resolve_scorer(
+    scorer: "Scorers" | None = None,
+) -> list[Scorer] | None:
+    if scorer is None:
+        return scorer
+
+    scorers = list(scorer) if isinstance(scorer, Sequence) else [scorer]
+    return [to_scorer(s) for s in scorers]
+
+
+def to_scorer(s: Any) -> Scorer:
+    if is_registry_object(s, type="scanner"):
+        from inspect_scout import as_scorer
+
+        return as_scorer(s)
+    elif is_registry_object(s, type="scorer"):
+        return cast(Scorer, s)
     else:
-        return model
+        raise TypeError(f"Unexpected scorer type: {type(s)}")
 
 
-def resolve_model_roles(
-    model_roles: Mapping[str, str | Model] | None,
-) -> dict[str, Model] | None:
-    if model_roles is not None:
-        resolved_model_roles = {
-            k: get_model(v, memoize=False) if isinstance(v, str) else v
-            for k, v in model_roles.items()
-        }
-        for k, v in resolved_model_roles.items():
-            v._set_role(k)
-        return resolved_model_roles
-    else:
-        return None
-
-
-def resolve_scorer(scorer: Scorer | list[Scorer] | None) -> list[Scorer] | None:
-    return (
-        scorer if isinstance(scorer, list) else [scorer] if scorer is not None else None
-    )
+AGENT_DESCRIPTION = "description"
 
 
 def resolve_scorer_metrics(

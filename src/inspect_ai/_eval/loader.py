@@ -125,7 +125,9 @@ def resolve_tasks(
                 model_roles=(
                     previous_task.model_roles or loaded_task.model_roles or model_roles
                 ),
-                sandbox=previous_task.log.eval.sandbox,
+                sandbox=resolve_task_file_sandbox(
+                    previous_task.log.eval.task_file, previous_task.log.eval.sandbox
+                ),
                 sequence=sequence,
                 id=previous_task.id,
                 sample_source=eval_log_sample_source(
@@ -213,6 +215,25 @@ def resolve_task_sandbox(
 
     # return resolved sandbox
     return resolved_sandbox
+
+
+def resolve_task_file_sandbox(
+    task_file: str | None, sandbox: SandboxEnvironmentSpec | None
+) -> SandboxEnvironmentSpec | None:
+    if sandbox is None or not isinstance(sandbox.config, str):
+        return sandbox
+
+    if task_file is None:
+        return sandbox
+
+    file_path = Path(sandbox.config)
+    if file_path.is_absolute():
+        return sandbox
+
+    # resolve relative sandbox config paths from logged task file location
+    src_dir = Path(task_file).parent
+    file_path = (src_dir / file_path).resolve()
+    return SandboxEnvironmentSpec(sandbox.type, file_path.as_posix())
 
 
 def load_tasks(
@@ -503,11 +524,25 @@ def scorer_from_spec(spec: ScorerSpec, task_path: Path | None, **kwargs: Any) ->
     # See if the scorer doesn't have type annotations. Currently the registry will not load
     # the function without type annotations.
     # TODO: We could consider calling this ourselves if we're certain it is what we're looking for
-    def validate_scorer(scorer_fn: Scorer, task_name: str, task_path: str) -> None:
+    def validate_scorer(scorer_fn: Scorer, scorer_name: str, scorer_path: str) -> None:
         signature = inspect.signature(scorer_fn)
         if signature.return_annotation is inspect.Signature.empty:
             raise PrerequisiteError(
-                f"The scorer '{task_name}' in the file '{task_path}' requires a 'Scorer' return type annotation. Please add the 'Scorer' type annotation to load the scorer."
+                f"The function '{scorer_name}' in the file '{scorer_path}' requires a return type annotation. Please add a return type annotation to use this function with scoring."
+            )
+
+    def create_scorer(scorer_name: str, **kwargs: Any) -> Scorer:
+        # handle scorers and scanners
+        if registry_lookup("scorer", scorer_name) is not None:
+            return scorer_create(scorer_name, **kwargs)
+        elif registry_lookup("scanner", scorer_name) is not None:
+            from inspect_scout import Scanner, Transcript, as_scorer
+
+            scanner = registry_create("scanner", scorer_name, **kwargs)
+            return as_scorer(cast(Scanner[Transcript], scanner))
+        else:
+            raise ValueError(
+                f"Unknown scorer {scorer_name} (not registered as a @scorrer or @scanner)"
             )
 
     with create_cm:
@@ -534,7 +569,7 @@ def scorer_from_spec(spec: ScorerSpec, task_path: Path | None, **kwargs: Any) ->
                 # We have the path to a file, so load that and try again
                 try:
                     load_module(task_path)
-                    scorer_fn = scorer_create(scorer_name, **kwargs)
+                    scorer_fn = create_scorer(scorer_name, **kwargs)
                     validate_scorer(scorer_fn, scorer_name, task_pretty_path)
                     return scorer_fn
                 except ValueError:
@@ -551,25 +586,30 @@ def scorer_from_spec(spec: ScorerSpec, task_path: Path | None, **kwargs: Any) ->
         # solver is a path, so load it that way
         else:
             load_module(scorer_file)
-            decorators = parse_decorators(scorer_file, "scorer")
+            scorer_decorators = parse_decorators(scorer_file, "scorer")
+            scanner_decorators = parse_decorators(scorer_file, "scanner")
 
-            # if there is no solver_name see if we can discover it
+            # if there is no scorer_name see if we can discover it
             if scorer_name is None:
-                if len(decorators) == 1:
-                    # decorator based solver
-                    scorer_name = decorators[0][0]
-                elif len(decorators) == 0:
+                if len(scorer_decorators) == 1:
+                    scorer_name = scorer_decorators[0][0]
+                elif len(scanner_decorators) == 1:
+                    scorer_name = scanner_decorators[0][0]
+                elif len(scorer_decorators) == 0 and len(scanner_decorators) == 0:
                     raise PrerequisiteError(
-                        f"The source file {pretty_scorer_file} does not contain any @scorer functions."
+                        f"The source file {pretty_scorer_file} does not contain any @scorer or @scanner functions."
                     )
                 else:
                     raise PrerequisiteError(
-                        f"The source file {pretty_scorer_file} has more than one @solver function (qualify which solver using e.g. '{scorer_file.name}y@solver_fn')"
+                        f"The source file {pretty_scorer_file} has more than one @scorer or @scanner function (qualify which scorer using e.g. '{scorer_file.name}y@scorer_fn')"
                     )
 
             # create decorator based solvers using the registry
-            if any(solver[0] == scorer_name for solver in decorators):
-                scorer_fn = scorer_create(scorer_name, **kwargs)
+            if any(
+                solver[0] == scorer_name
+                for solver in (scorer_decorators + scanner_decorators)
+            ):
+                scorer_fn = create_scorer(scorer_name, **kwargs)
                 validate_scorer(scorer_fn, scorer_name, pretty_scorer_file or "")
                 return scorer_fn
             else:
